@@ -33,6 +33,14 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+## Face detector model (MediaPipe Tasks)
+
+The backend loads **BlazeFace short-range** from `backend/models/blaze_face_short_range.tflite` (committed in the repo). If that file is missing, run from `backend/`:
+
+```bash
+python scripts/download_face_detector_model.py
+```
+
 ## Environment file
 
 Copy the root env template and adjust if needed:
