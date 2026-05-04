@@ -4,21 +4,22 @@ websockets==12.0
 python-multipart==0.0.9
 
 # Database
-sqlalchemy[asyncio]==2.0.30
-asyncpg==0.29.0
+# 2.0.30 breaks on Python 3.14: __firstlineno__ in class namespace vs FastIntFlag (TypeError in langhelpers)
+sqlalchemy[asyncio]==2.0.49
+asyncpg==0.31.0          # 0.29.0 has no cp314 wheel; 0.31.0 ships asyncpg-cp314-cp314-win_amd64.whl
 alembic==1.13.1
 
 # Face detection (no opencv-python in app code)
-mediapipe==0.10.14
-Pillow==10.3.0
-numpy==1.26.4
+mediapipe==0.10.35       # 0.10.14 unavailable on PyPI for many platforms
+Pillow>=11.1.0,<12       # 10.3.0 has no cp314 wheel; 11.1+ ships prebuilt cp314 wheels
+numpy>=1.26.4,<3         # 1.26.4 has no cp314 wheel; 2.x ships prebuilt cp314 wheels
 
 # Config
 python-dotenv==1.0.1
 pydantic-settings==2.2.1
 
-# Alembic migrations (sync driver)
-psycopg2-binary==2.9.9
+# Alembic migrations (sync driver for scripts/shell)
+psycopg2-binary>=2.9.9,<3  # 2.9.9 has no cp314 wheel; 2.9.12+ ships cp314 win_amd64
 
 # Testing
 pytest==8.2.0

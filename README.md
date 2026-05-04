@@ -81,6 +81,7 @@ source .venv/bin/activate
 .venv\Scripts\activate
 
 pip install -r requirements.txt
+python scripts/download_face_detector_model.py   # BlazeFace TFLite (~230 KB) for MediaPipe Tasks
 cp ../.env.example .env
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -124,14 +125,25 @@ megaai/
 │   ├── API.md
 │   ├── DECISIONS.md
 │   ├── AI_USAGE.md
-│   └── ROADMAP.md
+│   ├── ROADMAP.md
+│   └── SPRINT_1/
+│       ├── README.md
+│       ├── INSTALL_DOCKER_WINDOWS.md
+│       ├── INSTALL_PYTHON_WINDOWS.md
+│       ├── DOCKER.md
+│       ├── POSTGRESQL.md
+│       ├── LOCAL_PYTHON_AND_FASTAPI.md
+│       └── SPRINT_1_UP_AND_RUNNING.md
 ├── backend/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── alembic.ini
+│   ├── models/                 ← BlazeFace TFLite (committed; see scripts/ to re-download)
+│   ├── scripts/
+│   │   └── download_face_detector_model.py
 │   ├── alembic/
 │   │   └── versions/
-│   │       └── 001_create_roi_records.py
+│   │       └── 001_initial_sessions_roi.py
 │   ├── app/
 │   │   ├── main.py
 │   │   ├── config.py
@@ -158,3 +170,14 @@ megaai/
 - [Decisions](docs/DECISIONS.md)
 - [AI Usage](docs/AI_USAGE.md)
 - [Roadmap](docs/ROADMAP.md)
+
+### Sprint 1 — Backend, Docker, and PostgreSQL
+
+Step-by-step guides for Compose, Postgres, local Python/FastAPI, and the Sprint 1 “up and running” checklist:
+
+- **Windows — install from scratch:** [docs/SPRINT_1/INSTALL_DOCKER_WINDOWS.md](docs/SPRINT_1/INSTALL_DOCKER_WINDOWS.md), [docs/SPRINT_1/INSTALL_PYTHON_WINDOWS.md](docs/SPRINT_1/INSTALL_PYTHON_WINDOWS.md)
+- [docs/SPRINT_1/README.md](docs/SPRINT_1/README.md) (index)
+- [docs/SPRINT_1/DOCKER.md](docs/SPRINT_1/DOCKER.md)
+- [docs/SPRINT_1/POSTGRESQL.md](docs/SPRINT_1/POSTGRESQL.md)
+- [docs/SPRINT_1/LOCAL_PYTHON_AND_FASTAPI.md](docs/SPRINT_1/LOCAL_PYTHON_AND_FASTAPI.md)
+- [docs/SPRINT_1/SPRINT_1_UP_AND_RUNNING.md](docs/SPRINT_1/SPRINT_1_UP_AND_RUNNING.md)

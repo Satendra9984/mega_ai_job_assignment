@@ -2,8 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps needed by mediapipe
+# System deps: MediaPipe pulls OpenCV (cv2), which needs libGL at import time
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxrender1 \

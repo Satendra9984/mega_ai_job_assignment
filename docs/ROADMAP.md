@@ -33,6 +33,8 @@ Start date: **2026-05-04**
 
 **Goal:** FastAPI app running in Docker with face detection pipeline and DB persistence.
 
+Operational checklist and commands: [SPRINT_1/SPRINT_1_UP_AND_RUNNING.md](SPRINT_1/SPRINT_1_UP_AND_RUNNING.md) (see also [SPRINT_1/README.md](SPRINT_1/README.md)).
+
 ### Deliverables
 
 - `backend/` FastAPI project (`main.py`, `routers/`, `services/`, `models/`, `schemas/`, `db/`)
