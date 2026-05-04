@@ -21,7 +21,7 @@ interface MockWSInstance {
   onmessage: ((ev: Partial<MessageEvent>) => void) | null;
   onopen: (() => void) | null;
   onerror: (() => void) | null;
-  onclose: (() => void) | null;
+  onclose: ((ev: CloseEvent) => void) | null;
 }
 
 let wsInstance: MockWSInstance;
@@ -35,7 +35,7 @@ class MockWebSocket {
   onmessage: ((ev: Partial<MessageEvent>) => void) | null = null;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((ev: CloseEvent) => void) | null = null;
 
   constructor(_url: string) {
     // Register this instance for test access
@@ -227,5 +227,59 @@ describe("App — stop behaviour", () => {
     });
 
     expect(wsInstance.close).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ROI REST history
+// ---------------------------------------------------------------------------
+
+describe("App — ROI history fetch", () => {
+  it("renders persisted ROI rows from GET /api/roi", async () => {
+    const sessionUuid = "550e8400-e29b-41d4-a716-446655440000";
+    const apiBody = {
+      session_id: sessionUuid,
+      total: 1,
+      limit: 5,
+      offset: 0,
+      records: [
+        {
+          id: 1,
+          frame_index: 0,
+          detected_at: "2026-05-04T12:00:00.000Z",
+          face_detected: true,
+          x: 120,
+          y: 80,
+          w: 200,
+          h: 240,
+          confidence: 0.97,
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => apiBody,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await startAndOpenWS();
+
+    act(() => {
+      wsInstance.onmessage?.({
+        data: JSON.stringify({ type: "session", session_id: sessionUuid }),
+      });
+    });
+
+    const histBtn = await screen.findByRole("button", { name: /fetch roi history/i });
+    await act(async () => {
+      histBtn.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(screen.getByRole("columnheader", { name: /^Frame$/i })).toBeInTheDocument();
+    expect(screen.getByText("120")).toBeInTheDocument();
+    expect(screen.getByText("97.0%")).toBeInTheDocument();
   });
 });

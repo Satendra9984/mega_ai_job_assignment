@@ -43,6 +43,8 @@ python scripts/download_face_detector_model.py
 
 ## Environment file
 
+For **native PostgreSQL on your machine** (no Docker `db` service), hostname **`db` in `DATABASE_URL` will fail** on the host — use **`localhost`** and set **`CORS_ORIGINS`** for **http://localhost:5173** when using Vite. Step-by-step: [LOCAL_POSTGRES_NATIVE.md](LOCAL_POSTGRES_NATIVE.md).
+
 Copy the root env template and adjust if needed:
 
 ```bash
@@ -50,7 +52,7 @@ Copy the root env template and adjust if needed:
 cp .env.example .env
 ```
 
-For API on the **host** connecting to Postgres in Docker:
+For API on the **host** connecting to Postgres **in Docker**:
 
 1. Publish Postgres port **5432** on `db` (see [POSTGRESQL.md](POSTGRESQL.md) — optional `ports` mapping), **or** run Postgres another way.
 2. Set in `.env` (or `backend/.env` if you load from there):

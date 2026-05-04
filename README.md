@@ -72,6 +72,8 @@ See [.env.example](.env.example) for the full list.
 
 ### Backend
 
+**PostgreSQL on Windows without Docker** (role, `DATABASE_URL` with `localhost`, `.env` cwd, CORS for Vite on 5173): [docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md](docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md)
+
 **Backend implementation guide (code walkthrough, DB, tests, learning sprints):** [backend/docs/README.md](backend/docs/README.md)
 
 ```bash
@@ -97,6 +99,15 @@ cd frontend
 npm install
 npm run dev        # http://localhost:5173 (Vite; proxies /ws and /api to :8000)
 ```
+
+### Troubleshooting — WebSocket fails on `localhost:3000`
+
+If Chrome shows `WebSocket connection to 'ws://localhost:3000/ws/ingest' failed`:
+
+- **Cause:** The UI on port **3000** is the **nginx** container from `docker compose`. Nginx forwards `/ws/` to the Docker hostname **`backend:8000`** (see [`frontend/nginx.conf`](frontend/nginx.conf)), i.e. the **backend container** on the Compose network — **not** a separate `uvicorn` process you started only on your PC.
+- **Fix (pick one):**
+  1. **Full stack in Docker:** `docker compose up --build` and use http://localhost:3000 (backend + db + frontend all running).
+  2. **Local backend only:** run `uvicorn` on :8000 as above, then use the **Vite** dev app at http://localhost:5173 (`npm run dev`), which proxies `/ws` and `/api` to `127.0.0.1:8000` — do **not** rely on port 3000 unless the backend container is up.
 
 ### Tests
 

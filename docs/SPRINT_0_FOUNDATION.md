@@ -28,7 +28,7 @@ feature code ships in Sprint 0; everything here is scaffolding, contracts, and d
 | `.env.example` | All environment variables with sane defaults for local dev |
 | `.gitignore` | Python, Node, Docker artefacts excluded; `.env` never committed |
 | `backend/requirements.txt` | Pinned Python dependencies with Python 3.14 compatibility notes |
-| `backend/Dockerfile` | `python:3.11-slim` with `libgl1` for OpenCV import inside MediaPipe |
+| `backend/Dockerfile` | `python:3.11-slim` with `libgl1` + `libgles2` (MediaPipe native lib needs `libGLESv2.so.2`) |
 | `backend/alembic/` | Initial migration `001_initial_sessions_roi.py` creating `sessions` + `roi_records` |
 | `backend/models/blaze_face_short_range.tflite` | BlazeFace model bundled (~230 KB) |
 

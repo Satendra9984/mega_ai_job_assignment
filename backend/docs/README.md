@@ -23,3 +23,7 @@ Read in this order the first time you touch the codebase.
 | Docker and Postgres ops | [../docs/SPRINT_1/](../docs/SPRINT_1/) |
 
 This folder focuses on **implementation** and **how to read the code**, not on duplicating every wire format from `docs/API.md`.
+
+## WebSocket fails when mixing Docker UI and host uvicorn
+
+If you open **http://localhost:3000** (nginx in Docker) but only run **`uvicorn` on your machine**, the browser still connects to `ws://localhost:3000/ws/ingest`, and nginx forwards to the **`backend` container** — not your host process. See the troubleshooting section in the repo [README.md](../../README.md) (search for “WebSocket fails on”).

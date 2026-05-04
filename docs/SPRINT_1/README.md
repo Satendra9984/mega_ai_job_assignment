@@ -22,6 +22,7 @@ This folder documents how to run and operate the **FastAPI backend** with **Dock
 | [DOCKER.md](DOCKER.md) | Docker Desktop / Engine prerequisites, `docker compose` commands, services, ports, networks, volumes, troubleshooting |
 | [POSTGRESQL.md](POSTGRESQL.md) | Connection URLs, schema (`sessions`, `roi_records`), Alembic migrations, optional host port for GUI tools, backups |
 | [LOCAL_PYTHON_AND_FASTAPI.md](LOCAL_PYTHON_AND_FASTAPI.md) | Running Uvicorn on the host (venv, dependencies, version checks) |
+| [LOCAL_POSTGRES_NATIVE.md](LOCAL_POSTGRES_NATIVE.md) | **Native Postgres on Windows:** `DATABASE_URL` with `localhost`, `.env` cwd, Alembic, CORS for Vite (:5173), troubleshooting vs Docker |
 | [SPRINT_1_UP_AND_RUNNING.md](SPRINT_1_UP_AND_RUNNING.md) | Sprint 1 checklist with copy-paste verification commands |
 
 ## Happy path (full stack)

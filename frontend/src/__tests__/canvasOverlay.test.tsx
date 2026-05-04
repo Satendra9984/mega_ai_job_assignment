@@ -128,10 +128,10 @@ describe("Canvas ROI overlay", () => {
       });
     });
 
-    // Frame index should appear in the session info line
-    expect(await screen.findByText(/Frame 3/)).toBeInTheDocument();
-    // Confidence badge (95.0%)
-    expect(await screen.findByText(/95\.0%/)).toBeInTheDocument();
+    const live = await screen.findByRole("region", { name: "Current ROI" });
+    expect(live).toHaveTextContent(/Frame\s*3/);
+    expect(live).toHaveTextContent(/x=\s*100/);
+    expect(live).toHaveTextContent(/95\.0%/);
   });
 
   it("confidence badge does NOT appear when face_detected is false", async () => {
@@ -160,9 +160,10 @@ describe("Canvas ROI overlay", () => {
       });
     });
 
-    // frame_index should update (proves roi state was set)
-    expect(await screen.findByText(/Frame 0/)).toBeInTheDocument();
-    // But no confidence badge — face not detected
+    const live = await screen.findByRole("region", { name: "Current ROI" });
+    expect(live).toHaveTextContent(/Frame\s*0/);
+    expect(live).toHaveTextContent(/Face\s*no/);
+    // No percentage when confidence is null (em dash only, not a % badge)
     expect(screen.queryByText(/%/)).toBeNull();
   });
 
@@ -194,6 +195,8 @@ describe("Canvas ROI overlay", () => {
       });
     }
 
-    expect(await screen.findByText(/Frame 2/)).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Current ROI" })).toHaveTextContent(
+      /Frame\s*2/,
+    );
   });
 });

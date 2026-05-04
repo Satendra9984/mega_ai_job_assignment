@@ -1,5 +1,3 @@
-version: "3.9"
-
 networks:
   megaai_net:
     driver: bridge
@@ -41,6 +39,7 @@ services:
       db:
         condition: service_healthy
 
+  # Browser hits nginx on :3000; nginx proxies /ws and /api to the backend *service* (not host uvicorn).
   frontend:
     build:
       context: ./frontend
