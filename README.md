@@ -72,6 +72,8 @@ See [.env.example](.env.example) for the full list.
 
 ### Backend
 
+**Backend implementation guide (code walkthrough, DB, tests, learning sprints):** [backend/docs/README.md](backend/docs/README.md)
+
 ```bash
 cd backend
 python -m venv .venv
@@ -135,6 +137,8 @@ megaai/
 │       ├── LOCAL_PYTHON_AND_FASTAPI.md
 │       └── SPRINT_1_UP_AND_RUNNING.md
 ├── backend/
+│   ├── README.md               ← backend quickstart; see docs/ for code walkthrough
+│   ├── docs/                   ← backend-only implementation guides
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── alembic.ini
