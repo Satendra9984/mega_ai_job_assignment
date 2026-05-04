@@ -112,6 +112,7 @@ describe("App — initial render", () => {
   it("renders the page heading", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: /MegaAI/i })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Idle");
   });
 
   it("shows a 'Start webcam' button when not running", () => {
@@ -281,5 +282,56 @@ describe("App — ROI history fetch", () => {
     expect(screen.getByRole("columnheader", { name: /^Frame$/i })).toBeInTheDocument();
     expect(screen.getByText("120")).toBeInTheDocument();
     expect(screen.getByText("97.0%")).toBeInTheDocument();
+  });
+
+  it("shows a clear message when ROI history returns 404", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: "Session not found" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await startAndOpenWS();
+
+    act(() => {
+      wsInstance.onmessage?.({
+        data: JSON.stringify({
+          type: "session",
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+        }),
+      });
+    });
+
+    const histBtn = await screen.findByRole("button", { name: /fetch roi history/i });
+    await act(async () => {
+      histBtn.click();
+      await Promise.resolve();
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/Session not found/i);
+  });
+
+  it("dismisses the error alert when Dismiss is clicked", async () => {
+    render(<App />);
+    await startAndOpenWS();
+
+    act(() => {
+      wsInstance.onmessage?.({
+        data: JSON.stringify({
+          type: "error",
+          code: "FRAME_TOO_LARGE",
+          detail: "Too big",
+        }),
+      });
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/FRAME_TOO_LARGE/);
+    await act(async () => {
+      screen.getByRole("button", { name: /^Dismiss$/i }).click();
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

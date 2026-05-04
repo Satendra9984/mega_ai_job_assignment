@@ -16,16 +16,18 @@ Probes:
   - REST /api/roi          → 404 for unknown session, 422 for missing param
   - REST /openapi.json     → 200 with schema
   - WS  /ws/ingest         → handshake JSON contains session_id UUID
+  - WS  /ws/ingest         → one JPEG frame → ROI JSON (integration smoke)
   - WS  /ws/stream         → connect + disconnect without crash
 """
 from __future__ import annotations
 
+import io
 import json
 import os
-import socket
 import uuid
 
 import pytest
+from PIL import Image
 
 BACKEND_HOST = os.getenv("E2E_BACKEND_HOST", "localhost")
 BACKEND_PORT = int(os.getenv("E2E_BACKEND_PORT", "8000"))
@@ -76,6 +78,13 @@ skip_no_ws_client = pytest.mark.skipif(
         "Install with `pip install websocket-client` and ensure the stack is up."
     ),
 )
+
+
+def _tiny_gray_jpeg() -> bytes:
+    """Minimal valid JPEG (solid gray) for ingest smoke — no face expected."""
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 32), (200, 200, 200)).save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +141,29 @@ def test_e2e_ws_ingest_handshake() -> None:
         msg = json.loads(raw)
         assert msg["type"] == "session"
         uuid.UUID(msg["session_id"])  # raises ValueError if not a valid UUID
+    finally:
+        ws.close()
+
+
+@skip_no_ws_client
+def test_e2e_ws_ingest_one_jpeg_returns_roi_json() -> None:
+    """After handshake, sending one binary JPEG yields a type:roi JSON message."""
+    import websocket as ws_lib
+    from websocket import ABNF
+
+    ws = ws_lib.create_connection(f"{BACKEND_WS}/ws/ingest", timeout=15)
+    try:
+        raw = ws.recv()
+        msg = json.loads(raw)
+        assert msg["type"] == "session"
+
+        ws.send(_tiny_gray_jpeg(), opcode=ABNF.OPCODE_BINARY)
+        raw2 = ws.recv()
+        roi = json.loads(raw2)
+        assert roi["type"] == "roi"
+        assert "face_detected" in roi
+        assert isinstance(roi["face_detected"], bool)
+        assert roi.get("frame_index") == 0
     finally:
         ws.close()
 

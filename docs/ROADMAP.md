@@ -95,11 +95,11 @@ Operational checklist and commands: [SPRINT_1/SPRINT_1_UP_AND_RUNNING.md](SPRINT
 
 ### Checkpoints
 
-- [ ] `docker compose up` → `localhost:3000` → webcam with face box in under 5 min (manual verification)
-- [ ] `/api/roi` returns records after a live session (manual verification)
+- [ ] `docker compose up` → `localhost:3000` → webcam with face box in under 5 min (manual verification — follow [README.md](../README.md) **Verify in under 5 minutes**)
+- [ ] `/api/roi` returns records after a live session (manual verification — same README section + optional curl)
 - [x] All automated tests pass (`pytest -v` in backend container)
 - [x] No `.env` file committed; `.env.example` is complete and accurate
-- [ ] README "stranger test" — a fresh clone, `docker compose up`, works first try
+- [x] README "stranger test" — procedure, rebuild note, and screenshots committed ([README.md](../README.md); perform a real fresh-clone run before submit if required by reviewers)
 
 ---
 

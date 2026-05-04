@@ -10,7 +10,7 @@ reviewed, verified, or modified.
 
 | Tool | Role |
 |------|------|
-| Cursor (Claude Sonnet 4.5) | Architecture design, code scaffolding, documentation drafting |
+| Cursor (AI-assisted IDE) | Architecture design, code scaffolding, documentation drafting, refactors |
 
 ---
 
@@ -42,22 +42,24 @@ reviewed, verified, or modified.
 
 ### Sprint 2 — Frontend
 
+The production UI lives in a single [`../frontend/src/App.tsx`](../frontend/src/App.tsx) (Vite + React + TypeScript), not split across separate canvas/hook files.
+
 | Area | AI contribution | Human verification |
 |------|-----------------|--------------------|
-| `VideoCanvas.tsx` | Generated canvas capture + WebSocket send loop | Verified frame rate (requestAnimationFrame vs setInterval), confirmed JPEG encoding via `toBlob` |
-| ROI overlay drawing | Generated `ctx.strokeRect` call from ROI state | Verified coordinate mapping matches actual frame dimensions rendered on canvas |
-| WebSocket hook | Generated `useWebSocket.ts` with reconnect logic | Reviewed reconnect backoff; confirmed no reconnect storm on server restart |
-| `useWebcam.ts` | Generated `getUserMedia` hook | Tested in Chrome and Firefox; confirmed MediaStream cleanup on unmount |
-| UI layout | Generated basic Tailwind layout | Adjusted for visual clarity; manually tested responsive behaviour |
+| `App.tsx` — webcam + canvas | Generated `getUserMedia`, hidden capture canvas + visible display canvas, `toBlob` JPEG send loop, `requestAnimationFrame` draw loop | Confirmed ~120 ms send interval; ROI `strokeRect` aligns with video dimensions in browser |
+| `App.tsx` — WebSocket | Generated `/ws/ingest` client: handshake, binary send, JSON `session` / `roi` / `error` handling | Tested with Docker nginx on :3000 and Vite dev proxy on :5173 |
+| `App.tsx` — ROI readout | Generated live ROI panel + `GET /api/roi` history table | Spot-checked table vs API response; Vitest tests for message handling and fetch |
+| Vitest tests | Generated [`../frontend/src/__tests__/App.test.tsx`](../frontend/src/__tests__/App.test.tsx) and [`canvasOverlay.test.tsx`](../frontend/src/__tests__/canvasOverlay.test.tsx) | Run `npm run test`; updated selectors when UI structure changed |
 
 ### Sprint 3 — Integration & Polish
 
 | Area | AI contribution | Human verification |
 |------|-----------------|--------------------|
-| Integration tests | Generated pytest-asyncio test for ingest pipeline | Ran against live Docker stack; fixed DB connection string in test config |
-| Error handling | Generated try/except blocks for all WS paths | Verified that malformed binary messages do not crash the server |
-| nginx config | Generated proxy_pass rules for `/ws/` and `/api/` | Verified WebSocket upgrade headers are forwarded correctly |
-| `.env.example` | Generated variable list | Cross-checked against `config.py` to ensure no variable is missing |
+| Frontend error UX | User-facing messages for `getUserMedia` failures, REST `/api/roi` errors (404/422/5xx), network failures; loading state on history fetch; dismissible error alert; connection status chip; `aria-busy` / `role="alert"` | Manual: deny camera permission, bad session fetch, disconnect mid-stream |
+| WebSocket lifecycle | On unexpected `onclose`, clear send interval and sync `running` / connection status vs UI | Manual + unit behaviour for `intentionalStopRef` vs disconnect |
+| Compose E2E | Added `test_e2e_ws_ingest_one_jpeg_returns_roi_json` in [`../backend/tests/test_e2e_compose.py`](../backend/tests/test_e2e_compose.py) (skipped when stack down) | `docker compose up -d` then `pytest tests/test_e2e_compose.py -v` from host or `docker compose exec backend …` |
+| README / screenshots | Stranger-test checklist, 5-minute verification, Docker rebuild note, illustrative PNGs under `docs/images/` | Replace screenshots with real captures if reviewers require production-only assets |
+| `docs/AI_USAGE.md` | Rewrote Sprint 2–3 rows to match actual files | This review |
 
 ---
 
@@ -67,7 +69,7 @@ reviewed, verified, or modified.
   made by the developer after reasoning through trade-offs. AI provided context and options.
 - All tests were run locally before committing. Failing tests were debugged manually.
 - Git history and commit messages were written by the developer.
-- The final README "stranger test" (running the project end-to-end fresh) was done manually.
+- The README now includes a **stranger-test checklist** and a **5-minute verification** flow; a real fresh-clone run before submission is still recommended.
 
 ---
 

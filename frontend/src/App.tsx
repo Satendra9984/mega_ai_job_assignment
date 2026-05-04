@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+type ConnectionStatus = "idle" | "connecting" | "live" | "disconnected";
+
 type SessionMsg = { type: "session"; session_id: string };
 type RoiMsg = {
   type: "roi";
@@ -71,6 +73,71 @@ function apiRoot(): string {
   return `${location.protocol}//${location.host}`;
 }
 
+function mediaErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const { name, message } = err;
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "Camera permission denied. Allow the camera for this site and try again.";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "No camera found. Connect a webcam and try again.";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "Camera is in use by another application or cannot be read.";
+  }
+  if (name === "OverconstrainedError" || name === "ConstraintError") {
+    return "Camera does not support the requested settings.";
+  }
+  return message;
+}
+
+function connectionLabel(s: ConnectionStatus): string {
+  switch (s) {
+    case "idle":
+      return "Idle";
+    case "connecting":
+      return "Connecting…";
+    case "live":
+      return "Live";
+    case "disconnected":
+      return "Disconnected";
+  }
+}
+
+async function roiApiErrorMessage(r: Response): Promise<string> {
+  let detail = "";
+  try {
+    const j = (await r.json()) as {
+      detail?: string | Array<{ msg?: string } | string>;
+    };
+    if (typeof j?.detail === "string") {
+      detail = j.detail;
+    } else if (Array.isArray(j?.detail)) {
+      detail = j.detail
+        .map((item) =>
+          typeof item === "string" ? item : (item?.msg ?? JSON.stringify(item)),
+        )
+        .join("; ");
+    }
+  } catch {
+    /* ignore non-JSON body */
+  }
+  if (r.status === 404) {
+    return detail ? `Session not found: ${detail}` : "Session not found (404).";
+  }
+  if (r.status === 422) {
+    return detail ? `Invalid request: ${detail}` : "Invalid request (422).";
+  }
+  if (r.status >= 500) {
+    return detail
+      ? `Server error (${r.status}): ${detail}`
+      : `Server error (${r.status}). Try again later.`;
+  }
+  return detail
+    ? `ROI API failed (${r.status}): ${detail}`
+    : `ROI API failed (${r.status}).`;
+}
+
 export function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const capRef = useRef<HTMLCanvasElement>(null);
@@ -80,6 +147,7 @@ export function App() {
   const sendTimerRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const wsOpenedAtRef = useRef<number | null>(null);
+  const intentionalStopRef = useRef(false);
 
   const [running, setRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -90,6 +158,9 @@ export function App() {
   );
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("idle");
 
   const drawLoop = useCallback(() => {
     const video = videoRef.current;
@@ -144,7 +215,9 @@ export function App() {
   }, [drawLoop]);
 
   const stop = useCallback(() => {
+    intentionalStopRef.current = true;
     setRunning(false);
+    setConnectionStatus("idle");
     setHistoryRecords(null);
     setHistoryTotal(null);
     if (sendTimerRef.current) {
@@ -158,10 +231,12 @@ export function App() {
   }, []);
 
   const start = async () => {
+    intentionalStopRef.current = false;
     setError(null);
     setInfo(null);
     setHistoryRecords(null);
     setHistoryTotal(null);
+    setConnectionStatus("connecting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
@@ -192,6 +267,7 @@ export function App() {
 
       ws.onopen = () => {
         wsOpenedAtRef.current = performance.now();
+        setConnectionStatus("live");
         setRunning(true);
         sendTimerRef.current = window.setInterval(() => {
           const cap = capRef.current;
@@ -219,6 +295,17 @@ export function App() {
         setError(`WebSocket error (see close details below).${hint}`);
       };
       ws.onclose = (ev: CloseEvent) => {
+        if (sendTimerRef.current) {
+          window.clearInterval(sendTimerRef.current);
+          sendTimerRef.current = null;
+        }
+        setRunning(false);
+        if (intentionalStopRef.current) {
+          intentionalStopRef.current = false;
+          setConnectionStatus("idle");
+        } else {
+          setConnectionStatus("disconnected");
+        }
         const ms =
           wsOpenedAtRef.current != null
             ? Math.round(performance.now() - wsOpenedAtRef.current)
@@ -228,32 +315,74 @@ export function App() {
         const line = `Disconnected: code ${ev.code}, clean=${ev.wasClean}, reason: ${reason}${hint ? ` — ${hint}` : ""}${ms != null ? ` · session ~${ms} ms` : ""}`;
         setInfo(line);
         wsOpenedAtRef.current = null;
+        wsRef.current = null;
       };
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setConnectionStatus("idle");
+      setError(mediaErrorMessage(e));
     }
   };
 
   const fetchHistory = async () => {
-    if (!sessionId) return;
-    const r = await fetch(
-      `${apiRoot()}/api/roi?session_id=${encodeURIComponent(sessionId)}&limit=5`,
-    );
-    if (!r.ok) {
-      setError(`ROI API ${r.status}`);
-      return;
+    if (!sessionId || historyLoading) return;
+    setHistoryLoading(true);
+    try {
+      const r = await fetch(
+        `${apiRoot()}/api/roi?session_id=${encodeURIComponent(sessionId)}&limit=5`,
+      );
+      if (!r.ok) {
+        setError(await roiApiErrorMessage(r));
+        return;
+      }
+      const data = (await r.json()) as ROIListResponse;
+      if (
+        typeof data.total !== "number" ||
+        !Array.isArray(data.records)
+      ) {
+        setError("ROI API returned an unexpected response shape.");
+        return;
+      }
+      setHistoryTotal(data.total);
+      setHistoryRecords(data.records);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? `Network error while fetching ROI history: ${e.message}`
+          : "Network error while fetching ROI history.",
+      );
+    } finally {
+      setHistoryLoading(false);
     }
-    const data = (await r.json()) as ROIListResponse;
-    setHistoryTotal(data.total);
-    setHistoryRecords(data.records);
   };
 
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding: "1.5rem" }}>
       <header style={{ marginBottom: "1rem" }}>
-        <h1 style={{ margin: "0 0 0.25rem", fontWeight: 600 }}>
-          MegaAI — Face ROI Stream
-        </h1>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "0.75rem",
+            marginBottom: "0.35rem",
+          }}
+        >
+          <h1 style={{ margin: 0, fontWeight: 600 }}>MegaAI — Face ROI Stream</h1>
+          <span
+            role="status"
+            aria-live="polite"
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.2rem 0.55rem",
+              borderRadius: 999,
+              border: "1px solid #475569",
+              background: "#1e293b",
+              color: "#e2e8f0",
+            }}
+          >
+            {connectionLabel(connectionStatus)}
+          </span>
+        </div>
         <p style={{ margin: 0, opacity: 0.85 }}>
           Webcam frames are sent over <code>WS /ws/ingest</code>. The ROI rectangle is
           drawn on the canvas in your browser (not on the server).
@@ -272,7 +401,12 @@ export function App() {
           <button
             type="button"
             onClick={() => void start()}
-            style={{ padding: "0.5rem 1rem", cursor: "pointer" }}
+            disabled={connectionStatus === "connecting"}
+            aria-busy={connectionStatus === "connecting"}
+            style={{
+              padding: "0.5rem 1rem",
+              cursor: connectionStatus === "connecting" ? "wait" : "pointer",
+            }}
           >
             Start webcam
           </button>
@@ -288,13 +422,15 @@ export function App() {
         <button
           type="button"
           onClick={() => void fetchHistory()}
-          disabled={!sessionId}
+          disabled={!sessionId || historyLoading}
+          aria-busy={historyLoading}
           style={{
             padding: "0.5rem 1rem",
-            cursor: sessionId ? "pointer" : "not-allowed",
+            cursor:
+              sessionId && !historyLoading ? "pointer" : "not-allowed",
           }}
         >
-          Fetch ROI history (sample)
+          {historyLoading ? "Loading history…" : "Fetch ROI history (sample)"}
         </button>
       </div>
 
@@ -358,6 +494,18 @@ export function App() {
                 border: "1px solid #334155",
               }}
             >
+              <caption
+                style={{
+                  captionSide: "top",
+                  textAlign: "left",
+                  fontSize: "0.8rem",
+                  paddingBottom: "0.35rem",
+                  opacity: 0.9,
+                }}
+              >
+                Persisted ROI rows returned by{" "}
+                <code>GET /api/roi</code> (last fetch).
+              </caption>
               <thead>
                 <tr style={{ background: "#1e293b", textAlign: "left" }}>
                   <th style={{ padding: "0.35rem 0.5rem" }}>Frame</th>
@@ -403,7 +551,39 @@ export function App() {
         </section>
       )}
 
-      {error && <p style={{ color: "#f87171" }}>{error}</p>}
+      {error && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: "1rem",
+            padding: "0.75rem 1rem",
+            borderRadius: 8,
+            border: "1px solid #b91c1c",
+            background: "#450a0a",
+            color: "#fecaca",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "0.75rem",
+          }}
+        >
+          <p style={{ margin: 0, flex: "1 1 12rem" }}>{error}</p>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            style={{
+              padding: "0.35rem 0.75rem",
+              cursor: "pointer",
+              borderRadius: 6,
+              border: "1px solid #f87171",
+              background: "transparent",
+              color: "#fecaca",
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {info && <p style={{ opacity: 0.75 }}>{info}</p>}
 
       <div

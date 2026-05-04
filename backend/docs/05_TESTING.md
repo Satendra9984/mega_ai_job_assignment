@@ -59,6 +59,7 @@ docker compose exec backend pytest -v
 - **Skip** when `GET /openapi.json` is not HTTP 200 (stack down, wrong port, or app not ready). This avoids false failures when only TCP is open but the app returns 500 (e.g. DB not migrated).
 - REST checks use **`httpx`** (already in `requirements.txt`).
 - WebSocket checks use **`websocket-client`** (declared in `requirements.txt`); WS tests also require the health check to pass.
+- **`test_e2e_ws_ingest_one_jpeg_returns_roi_json`** — after `/ws/ingest` handshake, sends one small JPEG and asserts a `type: "roi"` JSON response (full pipeline smoke when DB + detector are up).
 
 Run only E2E:
 
