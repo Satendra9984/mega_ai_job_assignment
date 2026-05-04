@@ -1,0 +1,57 @@
+version: "3.9"
+
+networks:
+  megaai_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-megaai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-megaai}
+      POSTGRES_DB: ${POSTGRES_DB:-megaai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - megaai_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-megaai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-megaai}:${POSTGRES_PASSWORD:-megaai}@db:5432/${POSTGRES_DB:-megaai}
+    ports:
+      - "8000:8000"
+    networks:
+      - megaai_net
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_WS_BASE: ws://localhost:3000
+        VITE_API_BASE: http://localhost:3000
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - megaai_net
+    depends_on:
+      - backend
