@@ -37,6 +37,7 @@ async def list_roi(
     cursor_mode = use_cursor or cursor is not None or snapshot is not None
     snapshot_token: str | None = snapshot
 
+    # Cursor pagination prevents duplicates/skips caused by live inserts during offset paging.
     if cursor_mode:
         if snapshot_token is None:
             max_id_stmt = (

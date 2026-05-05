@@ -1,5 +1,6 @@
 # Secrets
 .env
+# NOTE: POSTGRES_PASSWORD lives in .env and should never be committed.
 
 # Python
 __pycache__/

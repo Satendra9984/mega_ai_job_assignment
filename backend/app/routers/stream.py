@@ -16,7 +16,8 @@ async def websocket_stream(websocket: WebSocket) -> None:
     await websocket.accept()
 
     frame_bus = websocket.app.state.frame_bus
-    queue = frame_bus.subscribe()
+    session_id = websocket.query_params.get("session_id")
+    queue = frame_bus.subscribe(session_id=session_id)
 
     try:
         while True:
@@ -27,4 +28,4 @@ async def websocket_stream(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         logger.info("Stream viewer disconnected")
     finally:
-        frame_bus.unsubscribe(queue)
+        frame_bus.unsubscribe(queue, session_id=session_id)

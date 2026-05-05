@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     max_frame_bytes: int = 1_048_576  # 1 MB
     detection_confidence: float = 0.5
     cors_origins: str = "http://localhost:3000"
+    max_ws_connections_per_ip: int = 5
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -11,8 +11,8 @@ from uuid import UUID
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.config import settings
-from app.models import ROIRecord, VideoSession
 from app.services.detector import DetectionResult
+from app.services.session_service import create_session, save_roi_record
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,12 @@ router = APIRouter()
 
 @router.websocket("/ws/ingest")
 async def websocket_ingest(websocket: WebSocket) -> None:
+    client_ip = websocket.client.host if websocket.client else "unknown"
+    limiter = websocket.app.state.connection_limiter
+    if not limiter.check(client_ip):
+        await websocket.close(code=1008, reason="Too many active connections for this IP.")
+        return
+
     await websocket.accept()
 
     session_factory = websocket.app.state.session_factory
@@ -36,10 +42,7 @@ async def websocket_ingest(websocket: WebSocket) -> None:
     try:
         try:
             async with session_factory() as db:  # type: AsyncSession
-                vs = VideoSession()
-                db.add(vs)
-                await db.commit()
-                await db.refresh(vs)
+                vs = await create_session(db)
                 session_id = vs.id
         except Exception:
             logger.exception("Ingest failed to create VideoSession")
@@ -145,27 +148,36 @@ async def websocket_ingest(websocket: WebSocket) -> None:
 
             try:
                 async with session_factory() as db:  # type: AsyncSession
-                    rec = ROIRecord(
+                    await save_roi_record(
+                        db,
                         session_id=session_id,
                         frame_index=frame_index,
-                        face_detected=result.face_detected,
-                        x=result.x,
-                        y=result.y,
-                        w=result.w,
-                        h=result.h,
-                        confidence=result.confidence,
+                        result=result,
                     )
-                    db.add(rec)
-                    await db.commit()
             except Exception:
                 logger.exception(
                     "Ingest DB persist failed session=%s frame_index=%s",
                     session_id,
                     frame_index,
                 )
-                raise
+                try:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "code": "DB_ERROR",
+                            "detail": "Frame not persisted; continuing.",
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "Ingest send_json (DB_ERROR) failed session=%s frame_index=%s",
+                        session_id,
+                        frame_index,
+                    )
+                    raise
+                continue
 
-            await frame_bus.publish(data)
+            await frame_bus.publish(data, session_id=str(session_id))
 
             try:
                 await websocket.send_json(
@@ -209,6 +221,7 @@ async def websocket_ingest(websocket: WebSocket) -> None:
         except Exception:
             pass
     finally:
+        limiter.release(client_ip)
         try:
             await websocket.close()
         except Exception:
