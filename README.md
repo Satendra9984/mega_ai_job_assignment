@@ -56,6 +56,8 @@ The backend container entrypoint runs **`alembic upgrade head`** before **`uvico
 
 ### Run
 
+**Linux/macOS (Bash):**
+
 ```bash
 git clone <repo-url>
 cd megaai
@@ -65,11 +67,28 @@ cp .env.example .env
 docker compose up --build
 ```
 
+**Windows (PowerShell):**
+
+```powershell
+git clone <repo-url>
+Set-Location megaai
+
+Copy-Item .env.example .env
+
+docker compose up --build
+```
+
 First full build typically takes **2–3 minutes**; later starts are faster.
 
 Open **http://localhost:3000**, allow camera access, and click **Start webcam**. With a face in frame, a **cyan** ROI rectangle appears on the video; status shows **Live**; **FPS** reflects ROI message cadence.
 
+### Video proof (configured setup)
+
+A full working demo recording for the documented configurations is available here: [OneDrive video proof](https://1drv.ms/v/c/105c6069263297c8/IQCnGFBDiblhRLvM29kc12OAAaXETxh0dgHbBD_uA1OyuS8?e=bLdP03).
+
 ### Stop
+
+**All platforms (Docker CLI):**
 
 ```bash
 docker compose down           # stop containers
@@ -91,7 +110,9 @@ Optional: `GET http://localhost:8000/api/roi?session_id=<uuid>` (session UUID ap
 Use a **new empty directory** clone with **no leftover `.env` or Docker volumes**:
 
 1. `git clone … && cd megaai`
-2. `cp .env.example .env`
+2. copy env file:
+   - Bash: `cp .env.example .env`
+   - PowerShell: `Copy-Item .env.example .env`
 3. `docker compose up --build`
 4. Repeat the verification checklist above.
 
@@ -129,16 +150,34 @@ flowchart LR
 
 ### B1 — Backend
 
+**Linux/macOS (Bash):**
+
 ```bash
 cd backend
 python -m venv .venv
-# Linux/macOS:   source .venv/bin/activate
-# Windows:       .venv\Scripts\activate
+source .venv/bin/activate
 
 pip install -r requirements.txt
 python scripts/download_face_detector_model.py
 
 cp ../.env.example .env
+# Edit .env if your Postgres host, port, or credentials differ.
+alembic upgrade head
+
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Windows (PowerShell):**
+
+```powershell
+Set-Location backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+python scripts/download_face_detector_model.py
+
+Copy-Item ..\.env.example .env
 # Edit .env if your Postgres host, port, or credentials differ.
 alembic upgrade head
 
@@ -151,8 +190,18 @@ Full Windows/native Postgres narrative: [docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md]
 
 ### B2 — Frontend
 
+**Linux/macOS (Bash):**
+
 ```bash
 cd frontend
+npm install
+npm run dev
+```
+
+**Windows (PowerShell):**
+
+```powershell
+Set-Location frontend
 npm install
 npm run dev
 ```
@@ -189,13 +238,33 @@ Minimum steps when **not** using the Compose `db` service:
    CREATE USER megaai WITH PASSWORD 'megaai';
    CREATE DATABASE megaai OWNER megaai;
    GRANT ALL PRIVILEGES ON DATABASE megaai TO megaai;
-   \c megaai
+   ```
+
+   Then connect to database `megaai` and run:
+
+   ```sql
    GRANT ALL ON SCHEMA public TO megaai;
+   ```
+
+   If using `psql`, you can switch DB with:
+
+   ```text
+   \c megaai
    ```
 
 2. **Apply schema** from `backend/`:
 
+   **Linux/macOS (Bash):**
+
    ```bash
+   cd backend
+   alembic upgrade head
+   ```
+
+   **Windows (PowerShell):**
+
+   ```powershell
+   Set-Location backend
    alembic upgrade head
    ```
 
@@ -225,10 +294,9 @@ Minimum steps when **not** using the Compose `db` service:
 |---|------|------|---------|
 | 1 | WebSocket | `ws://localhost:8000/ws/ingest` | Send webcam frames; receive ROI JSON per frame |
 | 2 | WebSocket | `ws://localhost:8000/ws/stream` | Receive fan-out JPEG frames after ingest |
+| 3 | REST GET | `http://localhost:8000/api/roi` | Query persisted ROI rows by `session_id` |
 
 Note: Via Docker UI on **:3000**, the browser typically uses **`ws://localhost:3000/ws/...`** — nginx proxies to the backend ([frontend/nginx.conf](frontend/nginx.conf)).
-
-| 3 | REST GET | `http://localhost:8000/api/roi` | Query persisted ROI rows by `session_id` |
 
 Full schemas: [docs/API.md](docs/API.md).
 
@@ -252,17 +320,31 @@ See [.env.example](.env.example). Highlights:
 
 **Backend** (expects venv activated, from `backend/`):
 
+**Linux/macOS (Bash):**
+
 ```bash
 pytest -v
 ```
 
+**Windows (PowerShell):**
+
+```powershell
+pytest -v
+# If pytest is not on PATH in your venv:
+python -m pytest -v
+```
+
 **Frontend** (from `frontend/`):
+
+**All platforms (npm):**
 
 ```bash
 npm run test
 ```
 
 **Inside running Compose** (optional):
+
+**All platforms (Docker CLI):**
 
 ```bash
 docker compose exec backend pytest -v
