@@ -1,9 +1,20 @@
-# Real-Time Face Detection Video Streaming System
+# MegaAI — Real-Time Face ROI Streaming
 
-A containerized backend API that accepts a live webcam feed over WebSocket, detects faces
-using MediaPipe (no OpenCV-Python in application code), persists ROI bounding-box data in
-PostgreSQL, and streams the feed back to a React frontend that overlays a rectangle on the
-detected face entirely in the browser.
+## What you are evaluating
+
+This project is a **full-stack real-time face streaming demo**. The browser captures webcam frames, sends **binary JPEG** over **WebSocket** (`/ws/ingest`), the **FastAPI** backend runs a **MediaPipe BlazeFace** detector, persists **ROI** (bounding-box) metadata in **PostgreSQL**, and returns **JSON** per frame. A **React** app draws the ROI on a **canvas** in the browser and can **fetch persisted rows** via **`GET /api/roi`**. Judges can verify end-to-end behavior in under five minutes using **Docker Compose** (recommended path below).
+
+## Stack
+
+| Layer | Technology |
+|-------|------------|
+| API | **FastAPI**, **Uvicorn** |
+| Database | **PostgreSQL 16** (Compose image), **SQLAlchemy 2.x** (async), **asyncpg**, **Alembic** migrations |
+| Detection | **MediaPipe Tasks** — BlazeFace short-range **TFLite** (~230 KB), no OpenCV-Python in application code |
+| Frontend | **React**, **Vite**, **TypeScript**, **Vitest** |
+| Containers | **Docker Compose** — `db`, `backend`, `frontend` (nginx serves UI on **:3000**) |
+
+Deeper design and message contracts: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/API.md](docs/API.md).
 
 ## Architecture
 
@@ -16,15 +27,32 @@ Browser (React)
   │◀────────────────── WS /ws/stream ◀── Frame Bus ◀──────────────────
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full diagram and component
-descriptions, and [diagrams/architecture.png](diagrams/architecture.png) for the visual.
+Diagram asset: [diagrams/architecture.png](diagrams/architecture.png).
 
-## Quickstart (< 5 minutes)
+---
 
-### Prerequisites
+## Prerequisites
 
-- Docker ≥ 24 and Docker Compose v2 (`docker compose` not `docker-compose`)
-- A webcam accessible by your browser
+**Path A (Docker — recommended for reviewers)**
+
+- **Docker** ≥ 24 and **Docker Compose v2** (`docker compose`, not `docker-compose`)
+- A **webcam** reachable from the browser
+
+**Path B (native development)**
+
+- **Python** 3.11+ (matches backend Docker image; 3.14 may work locally with warnings)
+- **Node.js** LTS (for `npm run dev`)
+- **PostgreSQL** 15+ if you run the database outside Compose (see [Native PostgreSQL checklist](#native-postgresql-checklist))
+
+---
+
+## Path A — Full Docker (recommended)
+
+This is the **shortest path** for judges and users: one clone, one Compose command, UI on **http://localhost:3000**.
+
+### Why tables exist without manual steps
+
+The backend container entrypoint runs **`alembic upgrade head`** before **`uvicorn`** ([backend/Dockerfile](backend/Dockerfile)), so `sessions`, `roi_records`, and **`alembic_version`** are created automatically. You do **not** need to run Alembic manually when using the full stack in Docker.
 
 ### Run
 
@@ -32,130 +60,243 @@ descriptions, and [diagrams/architecture.png](diagrams/architecture.png) for the
 git clone <repo-url>
 cd megaai
 
-cp .env.example .env          # defaults work for local dev; no edits required
+cp .env.example .env
 
-docker compose up --build     # first build ~2-3 min; subsequent runs ~10 s
+docker compose up --build
 ```
 
-Open **http://localhost:3000** in your browser, allow webcam access, and click **Start**.
-A rectangle will appear around your face in real time.
+First full build typically takes **2–3 minutes**; later starts are faster.
+
+Open **http://localhost:3000**, allow camera access, and click **Start webcam**. With a face in frame, a **cyan** ROI rectangle appears on the video; status shows **Live**; **FPS** reflects ROI message cadence.
 
 ### Stop
 
 ```bash
 docker compose down           # stop containers
-docker compose down -v        # also remove the Postgres volume
+docker compose down -v       # stop and remove Postgres volume (wipes DB data)
 ```
 
-### Verify in under 5 minutes (full stack)
+### Verification checklist (full stack)
 
-1. With containers running, open **http://localhost:3000**.
-2. Click **Start webcam**, allow the camera — status should show **Live** and the video should appear on the canvas.
-3. With your face in frame, confirm a **cyan rectangle** tracks your face and **Current ROI (live)** updates (frame index, face yes/no, box coordinates, confidence).
-4. Click **Fetch ROI history (sample)** — a table of persisted rows (or a “no rows yet” message) should appear under **ROI history**.
-5. Click **Stop** — status returns to **Idle** and the stream stops.
+1. Containers healthy: `backend`, `db`, `frontend`.
+2. **http://localhost:3000** loads; **Start webcam** enables **Live**.
+3. **Current ROI (live)** shows frame index, confidence, bbox, face yes/no.
+4. **Fetch ROI history (sample)** shows persisted rows or an empty-message path.
+5. **Stop** returns status to idle.
 
-Optional: `GET http://localhost:8000/api/roi?session_id=<uuid>` in a browser or curl (use the session UUID shown in the UI) to confirm rows exist after streaming for a few seconds.
+Optional: `GET http://localhost:8000/api/roi?session_id=<uuid>` (session UUID appears in the UI after streaming).
 
-### Stranger test (fresh clone)
+### Stranger test (fresh evaluation)
 
-Use this to confirm the repo is runnable without hidden local state:
+Use a **new empty directory** clone with **no leftover `.env` or Docker volumes**:
 
-1. Clone the repository into a **new empty directory** (no existing `.env` or Docker volumes from an old run).
-2. `cd megaai` then `cp .env.example .env` (defaults are enough for Compose).
-3. Run `docker compose up --build` and wait until `backend`, `db`, and `frontend` are healthy (first build may take a few minutes).
-4. Open **http://localhost:3000** and perform the **Verify in under 5 minutes** steps above.
+1. `git clone … && cd megaai`
+2. `cp .env.example .env`
+3. `docker compose up --build`
+4. Repeat the verification checklist above.
 
-**Note:** The Compose setup **bakes** the frontend and backend into images. After you change application code, run `docker compose up --build` (or `docker compose build` for the affected service) so containers pick up your edits.
+**Rebuild after code edits:** Compose images bake the code; run `docker compose up --build` (or rebuild the affected service) so containers pick up changes.
 
-**Security:** Do **not** commit a real `.env` with secrets. Only `.env.example` belongs in git.
+**Security:** Never commit **`backend/.env`** or secrets. Only [.env.example](.env.example) belongs in git.
 
-### Screenshots (illustrative UI)
+---
 
-Representative UI (mockups for documentation — your live layout may vary slightly):
+## Path B — Native development
 
-| Live stream + ROI overlay | ROI history table |
-|----------------------------|-------------------|
-| ![Live ROI](docs/images/app-ui-live.png) | ![ROI history](docs/images/app-ui-history.png) |
+Use when you want **hot reload** for backend or frontend **without rebuilding Docker images**.
+
+- **Backend** listens on **:8000** (Uvicorn).
+- **Frontend** dev server runs on **:5173** and **proxies** `/ws` and `/api` to the API — **do not** use port **3000** for UI unless the **Docker frontend/nginx** stack is running (see [Troubleshooting](#troubleshooting)).
+
+```mermaid
+flowchart LR
+  subgraph DockerPath [PathA_Docker]
+    Clone[Clone_repo]
+    Env[cp_env_example]
+    Up[docker_compose_up]
+    UI3000[Browser_port_3000]
+    Clone --> Env --> Up --> UI3000
+  end
+  subgraph NativePath [PathB_Native]
+    Venv[venv_and_dependencies]
+    Alembic[alembic_upgrade_head]
+    Uvicorn[uvicorn_port_8000]
+    Vite[npm_run_dev_5173]
+    Venv --> Alembic --> Uvicorn
+    Vite -.->|"proxy"| Uvicorn
+  end
+```
+
+### B1 — Backend
+
+```bash
+cd backend
+python -m venv .venv
+# Linux/macOS:   source .venv/bin/activate
+# Windows:       .venv\Scripts\activate
+
+pip install -r requirements.txt
+python scripts/download_face_detector_model.py
+
+cp ../.env.example .env
+# Edit .env if your Postgres host, port, or credentials differ.
+alembic upgrade head
+
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Interactive OpenAPI: **http://localhost:8000/docs**
+
+Full Windows/native Postgres narrative: [docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md](docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md)
+
+### B2 — Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173** — not `:3000` — when only **host Uvicorn** is running.
+
+---
+
+## Database URLs: Docker versus host
+
+Understanding this avoids the most common “works in Docker, fails on my PC” confusion.
+
+| Where the API runs | Where Postgres is | Typical `DATABASE_URL` host |
+|--------------------|-------------------|----------------------------|
+| **Backend container** (Compose) | **`db` container** | Compose **overrides** `DATABASE_URL` to use host **`db`** ([docker-compose.yml](docker-compose.yml)). |
+| **Uvicorn on your machine** | Postgres on same PC, WSL, or published container port | Use **`localhost`** or **`127.0.0.1`** plus the correct **port**. |
+
+**Important:**
+
+- **`db`** resolves **only inside** the Compose network. Running Uvicorn on Windows/macOS/Linux **host** with `@db` in `DATABASE_URL` causes **`getaddrinfo failed`**.
+- [.env.example](.env.example) defaults to **`localhost`** for **native** workflows; Compose still injects **`@db`** for the backend service environment.
+
+Detailed mode table: [docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md](docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md).
+
+---
+
+## Native PostgreSQL checklist
+
+Minimum steps when **not** using the Compose `db` service:
+
+1. **Create role and database** (example matches `.env.example`):
+
+   ```sql
+   CREATE USER megaai WITH PASSWORD 'megaai';
+   CREATE DATABASE megaai OWNER megaai;
+   GRANT ALL PRIVILEGES ON DATABASE megaai TO megaai;
+   \c megaai
+   GRANT ALL ON SCHEMA public TO megaai;
+   ```
+
+2. **Apply schema** from `backend/`:
+
+   ```bash
+   alembic upgrade head
+   ```
+
+3. **PostgreSQL 15+ (`permission denied for schema public`)**
+
+   New databases may not grant `CREATE` on `public` to non-owners. As superuser (e.g. `postgres`) on database **`megaai`**:
+
+   ```sql
+   GRANT CREATE, USAGE ON SCHEMA public TO megaai;
+   ```
+
+   Alternative: `ALTER SCHEMA public OWNER TO megaai;` for a DB dedicated to this app.
+
+4. **Align `DATABASE_URL`** in `backend/.env`:
+
+   ```text
+   DATABASE_URL=postgresql+asyncpg://megaai:megaai@localhost:5432/megaai
+   ```
+
+   Use **`127.0.0.1`**, non-default ports, or URL-encoded passwords if your setup requires it.
+
+---
 
 ## Endpoints
 
 | # | Type | Path | Purpose |
 |---|------|------|---------|
 | 1 | WebSocket | `ws://localhost:8000/ws/ingest` | Send webcam frames; receive ROI JSON per frame |
-| 2 | WebSocket | `ws://localhost:8000/ws/stream` | Receive raw video frames (viewer endpoint) |
-| 3 | REST GET  | `http://localhost:8000/api/roi` | Query persisted ROI records by session |
+| 2 | WebSocket | `ws://localhost:8000/ws/stream` | Receive fan-out JPEG frames after ingest |
 
-Full contracts and message schemas: [docs/API.md](docs/API.md)
+Note: Via Docker UI on **:3000**, the browser typically uses **`ws://localhost:3000/ws/...`** — nginx proxies to the backend ([frontend/nginx.conf](frontend/nginx.conf)).
 
-## Environment Variables
+| 3 | REST GET | `http://localhost:8000/api/roi` | Query persisted ROI rows by `session_id` |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://megaai:megaai@db:5432/megaai` | Async SQLAlchemy DB URL |
-| `MAX_FRAME_BYTES` | `1048576` | Max accepted frame size (1 MB) |
-| `DETECTION_CONFIDENCE` | `0.5` | MediaPipe min detection confidence |
-| `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed origins |
+Full schemas: [docs/API.md](docs/API.md).
 
-See [.env.example](.env.example) for the full list.
+---
 
-## Development (without Docker)
+## Environment variables
 
-### Backend
+See [.env.example](.env.example). Highlights:
 
-**PostgreSQL on Windows without Docker** (role, `DATABASE_URL` with `localhost`, `.env` cwd, CORS for Vite on 5173): [docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md](docs/SPRINT_1/LOCAL_POSTGRES_NATIVE.md)
+| Variable | Role |
+|----------|------|
+| `DATABASE_URL` | Async SQLAlchemy URL (**`postgresql+asyncpg://`**). Native default uses **`localhost`**; Compose **overrides** to **`db`** for the backend service. |
+| `MAX_FRAME_BYTES` | Maximum accepted JPEG payload (default 1 MB). |
+| `DETECTION_CONFIDENCE` | MediaPipe BlazeFace detection threshold. |
+| `CORS_ORIGINS` | Allowed browser origins — include **`http://localhost:5173`** when using Vite-only dev alongside a local API. |
+| `VITE_WS_BASE` / `VITE_API_BASE` | Frontend build/runtime bases (Compose typically uses `:3000` nginx). |
 
-**Backend implementation guide (code walkthrough, DB, tests, learning sprints):** [backend/docs/README.md](backend/docs/README.md)
+---
 
-```bash
-cd backend
-python -m venv .venv
-# Linux/macOS:
-source .venv/bin/activate
-# Windows:
-.venv\Scripts\activate
+## Tests
 
-pip install -r requirements.txt
-python scripts/download_face_detector_model.py   # BlazeFace TFLite (~230 KB) for MediaPipe Tasks
-cp ../.env.example .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Interactive API docs: http://localhost:8000/docs
-
-### Frontend
+**Backend** (expects venv activated, from `backend/`):
 
 ```bash
-cd frontend
-npm install
-npm run dev        # http://localhost:5173 (Vite; proxies /ws and /api to :8000)
-```
-
-### Troubleshooting — WebSocket fails on `localhost:3000`
-
-If Chrome shows `WebSocket connection to 'ws://localhost:3000/ws/ingest' failed`:
-
-- **Cause:** The UI on port **3000** is the **nginx** container from `docker compose`. Nginx forwards `/ws/` to the Docker hostname **`backend:8000`** (see [`frontend/nginx.conf`](frontend/nginx.conf)), i.e. the **backend container** on the Compose network — **not** a separate `uvicorn` process you started only on your PC.
-- **Fix (pick one):**
-  1. **Full stack in Docker:** `docker compose up --build` and use http://localhost:3000 (backend + db + frontend all running).
-  2. **Local backend only:** run `uvicorn` on :8000 as above, then use the **Vite** dev app at http://localhost:5173 (`npm run dev`), which proxies `/ws` and `/api` to `127.0.0.1:8000` — do **not** rely on port 3000 unless the backend container is up.
-
-### Tests
-
-With Python 3.11+ and dependencies installed locally:
-
-```bash
-cd backend
 pytest -v
 ```
 
-Or inside the backend container (after `docker compose up --build`):
+**Frontend** (from `frontend/`):
+
+```bash
+npm run test
+```
+
+**Inside running Compose** (optional):
 
 ```bash
 docker compose exec backend pytest -v
 ```
 
-## Project Structure
+Latest local run: backend **31** tests, frontend **19** tests (Vitest).
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to try |
+|---------|---------------|-------------|
+| WebSocket fails on **`localhost:3000`** but you only run **host Uvicorn** | Port **3000** is **nginx inside Docker**, proxying to the **backend container** — not your PC’s Uvicorn | Use **`http://localhost:5173`** with `npm run dev`, or bring up **full Docker** for **:3000**. |
+| **`getaddrinfo failed`** when ingesting | `DATABASE_URL` uses **`db`** while API runs **on host** | Set host to **`localhost`** / reachable IP in `backend/.env`. |
+| **`password authentication failed for user megaai`** | Wrong password or role misconfigured | `ALTER ROLE megaai WITH PASSWORD 'megaai';` or match `.env`; confirm with `psql`. |
+| **`relation "sessions" does not exist`** | Schema not migrated | **`alembic upgrade head`** from `backend/` (Docker does this automatically in the container). |
+| **`permission denied for schema public`** (Alembic) | PostgreSQL **15+** default privileges | `GRANT CREATE, USAGE ON SCHEMA public TO megaai;` (see [Native PostgreSQL checklist](#native-postgresql-checklist)). |
+
+---
+
+## Screenshots and live UI
+
+The committed mockups illustrate the dashboard layout:
+
+| Live stream + ROI overlay | ROI history |
+|---------------------------|-------------|
+| ![Live ROI](docs/images/app-ui-live.png) | ![ROI history](docs/images/app-ui-history.png) |
+
+The **running React app** (after the dashboard redesign) follows the same structure: navy theme, cyan ROI overlay, ROI stats grid, ROI history table, and coordinate info callout.
+
+---
+
+## Project structure
 
 ```
 megaai/
@@ -163,9 +304,9 @@ megaai/
 ├── .env.example
 ├── docker-compose.yml
 ├── diagrams/
-│   └── architecture.png        ← required by assignment
+│   └── architecture.png
 ├── docs/
-│   ├── images/                 ← README screenshots (Sprint 3)
+│   ├── images/                 README / Sprint screenshots
 │   ├── ARCHITECTURE.md
 │   ├── API.md
 │   ├── DECISIONS.md
@@ -177,52 +318,39 @@ megaai/
 │       ├── INSTALL_PYTHON_WINDOWS.md
 │       ├── DOCKER.md
 │       ├── POSTGRESQL.md
+│       ├── LOCAL_POSTGRES_NATIVE.md
 │       ├── LOCAL_PYTHON_AND_FASTAPI.md
 │       └── SPRINT_1_UP_AND_RUNNING.md
 ├── backend/
-│   ├── README.md               ← backend quickstart; see docs/ for code walkthrough
-│   ├── docs/                   ← backend-only implementation guides
+│   ├── README.md
+│   ├── docs/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── alembic.ini
-│   ├── models/                 ← BlazeFace TFLite (committed; see scripts/ to re-download)
-│   ├── scripts/
-│   │   └── download_face_detector_model.py
-│   ├── alembic/
-│   │   └── versions/
-│   │       └── 001_initial_sessions_roi.py
-│   ├── app/
-│   │   ├── main.py
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   ├── models/
-│   │   ├── schemas/
-│   │   ├── routers/
-│   │   └── services/
+│   ├── models/                 BlazeFace TFLite (see scripts/)
+│   ├── scripts/download_face_detector_model.py
+│   ├── alembic/versions/
+│   ├── app/                    FastAPI routers, detector, DB models
 │   └── tests/
 └── frontend/
     ├── Dockerfile
     ├── nginx.conf
     ├── package.json
+    ├── index.html
     └── src/
-        └── App.tsx
+        ├── App.tsx
+        ├── index.css
+        └── __tests__/          Vitest suites
 ```
 
-## Documentation Index
+---
+
+## Documentation index
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [API Reference](docs/API.md)
+- [API reference](docs/API.md)
 - [Decisions](docs/DECISIONS.md)
-- [AI Usage](docs/AI_USAGE.md)
+- [AI usage disclosure](docs/AI_USAGE.md)
 - [Roadmap](docs/ROADMAP.md)
-
-### Sprint 1 — Backend, Docker, and PostgreSQL
-
-Step-by-step guides for Compose, Postgres, local Python/FastAPI, and the Sprint 1 “up and running” checklist:
-
-- **Windows — install from scratch:** [docs/SPRINT_1/INSTALL_DOCKER_WINDOWS.md](docs/SPRINT_1/INSTALL_DOCKER_WINDOWS.md), [docs/SPRINT_1/INSTALL_PYTHON_WINDOWS.md](docs/SPRINT_1/INSTALL_PYTHON_WINDOWS.md)
-- [docs/SPRINT_1/README.md](docs/SPRINT_1/README.md) (index)
-- [docs/SPRINT_1/DOCKER.md](docs/SPRINT_1/DOCKER.md)
-- [docs/SPRINT_1/POSTGRESQL.md](docs/SPRINT_1/POSTGRESQL.md)
-- [docs/SPRINT_1/LOCAL_PYTHON_AND_FASTAPI.md](docs/SPRINT_1/LOCAL_PYTHON_AND_FASTAPI.md)
-- [docs/SPRINT_1/SPRINT_1_UP_AND_RUNNING.md](docs/SPRINT_1/SPRINT_1_UP_AND_RUNNING.md)
+- Sprint 1 index — install guides, Postgres, Compose: [docs/SPRINT_1/README.md](docs/SPRINT_1/README.md)
+- Backend implementation notes: [backend/docs/README.md](backend/docs/README.md)

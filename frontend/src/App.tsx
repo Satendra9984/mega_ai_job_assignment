@@ -37,12 +37,32 @@ type ROIListResponse = {
   records: ROIRecordRead[];
 };
 
+type ConfidenceTier = "high" | "med" | "low";
+
 function fmtPx(n: number | null): string {
   return n == null ? "—" : String(n);
 }
 
 function fmtConfidence(c: number | null): string {
   return c == null ? "—" : `${(c * 100).toFixed(1)}%`;
+}
+
+function confidenceTier(c: number | null): ConfidenceTier | null {
+  if (c == null) return null;
+  if (c >= 0.85) return "high";
+  if (c >= 0.5) return "med";
+  return "low";
+}
+
+function confidenceTierLabel(t: ConfidenceTier): string {
+  switch (t) {
+    case "high":
+      return "High";
+    case "med":
+      return "Med";
+    case "low":
+      return "Low";
+  }
 }
 
 /** Human-readable hint for common WebSocket close codes (RFC 6455). */
@@ -138,6 +158,44 @@ async function roiApiErrorMessage(r: Response): Promise<string> {
     : `ROI API failed (${r.status}).`;
 }
 
+function LogoMark() {
+  return (
+    <svg
+      className="brand-logo"
+      viewBox="0 0 48 48"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <rect
+        x="4"
+        y="8"
+        width="40"
+        height="32"
+        rx="4"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <ellipse cx="24" cy="22" rx="10" ry="12" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="20" cy="20" r="2" fill="currentColor" />
+      <circle cx="28" cy="20" r="2" fill="currentColor" />
+      <path
+        d="M18 28c2 3 10 3 12 0"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function statusPillClass(connectionStatus: ConnectionStatus): string {
+  const base = "status-pill";
+  if (connectionStatus === "live") return `${base} status-pill--live`;
+  if (connectionStatus === "connecting") return `${base} status-pill--connecting`;
+  return base;
+}
+
 export function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const capRef = useRef<HTMLCanvasElement>(null);
@@ -148,6 +206,7 @@ export function App() {
   const rafRef = useRef<number | null>(null);
   const wsOpenedAtRef = useRef<number | null>(null);
   const intentionalStopRef = useRef(false);
+  const roiMsgTimesRef = useRef<number[]>([]);
 
   const [running, setRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -161,6 +220,29 @@ export function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("idle");
+  const [effectiveFps, setEffectiveFps] = useState<number | null>(null);
+
+  const recordRoiMessageForFps = useCallback(() => {
+    const now = performance.now();
+    const arr = roiMsgTimesRef.current;
+    arr.push(now);
+    const maxPoints = 11;
+    if (arr.length > maxPoints) arr.splice(0, arr.length - maxPoints);
+    if (arr.length < 2) {
+      setEffectiveFps(null);
+      return;
+    }
+    const deltas: number[] = [];
+    for (let i = 1; i < arr.length; i++) deltas.push(arr[i] - arr[i - 1]!);
+    const mean = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+    if (mean <= 0) return;
+    setEffectiveFps(1000 / mean);
+  }, []);
+
+  const resetFps = useCallback(() => {
+    roiMsgTimesRef.current = [];
+    setEffectiveFps(null);
+  }, []);
 
   const drawLoop = useCallback(() => {
     const video = videoRef.current;
@@ -200,7 +282,7 @@ export function App() {
       roi.w != null &&
       roi.h != null
     ) {
-      dctx.strokeStyle = "#22d3ee";
+      dctx.strokeStyle = "#4fd1ed";
       dctx.lineWidth = Math.max(2, Math.round(w / 200));
       dctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
     }
@@ -220,6 +302,8 @@ export function App() {
     setConnectionStatus("idle");
     setHistoryRecords(null);
     setHistoryTotal(null);
+    setRoi(null);
+    resetFps();
     if (sendTimerRef.current) {
       window.clearInterval(sendTimerRef.current);
       sendTimerRef.current = null;
@@ -228,7 +312,7 @@ export function App() {
     wsRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-  }, []);
+  }, [resetFps]);
 
   const start = async () => {
     intentionalStopRef.current = false;
@@ -236,6 +320,8 @@ export function App() {
     setInfo(null);
     setHistoryRecords(null);
     setHistoryTotal(null);
+    setRoi(null);
+    resetFps();
     setConnectionStatus("connecting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -258,8 +344,10 @@ export function App() {
         try {
           const msg = JSON.parse(ev.data) as SessionMsg | RoiMsg | ErrMsg;
           if (msg.type === "session") setSessionId(msg.session_id);
-          else if (msg.type === "roi") setRoi(msg);
-          else if (msg.type === "error") setError(`${msg.code}: ${msg.detail}`);
+          else if (msg.type === "roi") {
+            setRoi(msg);
+            recordRoiMessageForFps();
+          } else if (msg.type === "error") setError(`${msg.code}: ${msg.detail}`);
         } catch {
           /* ignore malformed */
         }
@@ -287,7 +375,6 @@ export function App() {
       };
 
       ws.onerror = () => {
-        // compose default: host port 3000 -> nginx:80 (see docker-compose.yml)
         const dockerNginxUi = location.port === "3000";
         const hint = dockerNginxUi
           ? " Port 3000 uses nginx inside Docker, which proxies to the backend *container* (service name `backend`), not to uvicorn on your host. Run `docker compose up` (including backend), or use `npm run dev` at http://localhost:5173 with local uvicorn on :8000."
@@ -300,6 +387,7 @@ export function App() {
           sendTimerRef.current = null;
         }
         setRunning(false);
+        resetFps();
         if (intentionalStopRef.current) {
           intentionalStopRef.current = false;
           setConnectionStatus("idle");
@@ -355,257 +443,240 @@ export function App() {
     }
   };
 
+  const showLiveChrome = connectionStatus === "live" && running;
+  const tier = confidenceTier(roi?.confidence ?? null);
+
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto", padding: "1.5rem" }}>
-      <header style={{ marginBottom: "1rem" }}>
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: "0.75rem",
-            marginBottom: "0.35rem",
-          }}
-        >
-          <h1 style={{ margin: 0, fontWeight: 600 }}>MegaAI — Face ROI Stream</h1>
-          <span
-            role="status"
-            aria-live="polite"
-            style={{
-              fontSize: "0.8rem",
-              padding: "0.2rem 0.55rem",
-              borderRadius: 999,
-              border: "1px solid #475569",
-              background: "#1e293b",
-              color: "#e2e8f0",
-            }}
-          >
-            {connectionLabel(connectionStatus)}
-          </span>
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="brand-row">
+          <LogoMark />
+          <div className="brand-text">
+            <h1 className="app-title">MegaAI Face ROI</h1>
+            <p className="app-subtitle">
+              Real-time face region detection and tracking
+            </p>
+          </div>
+          <div className="header-meta">
+            <span
+              className={statusPillClass(connectionStatus)}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="status-pill__dot" aria-hidden />
+              {connectionLabel(connectionStatus)}
+            </span>
+          </div>
         </div>
-        <p style={{ margin: 0, opacity: 0.85 }}>
-          Webcam frames are sent over <code>WS /ws/ingest</code>. The ROI rectangle is
-          drawn on the canvas in your browser (not on the server).
+        <p className="lead">
+          Detects and tracks the primary face region on each frame. Webcam frames
+          are sent over <code>WS /ws/ingest</code>; the ROI rectangle is drawn on
+          the canvas in your browser (not on the server).
         </p>
       </header>
 
-      <div
-        style={{
-          display: "flex",
-          gap: "0.75rem",
-          flexWrap: "wrap",
-          marginBottom: "1rem",
-        }}
-      >
+      <div className="toolbar" aria-label="Stream controls">
         {!running ? (
           <button
             type="button"
+            className="btn btn-primary"
             onClick={() => void start()}
             disabled={connectionStatus === "connecting"}
             aria-busy={connectionStatus === "connecting"}
-            style={{
-              padding: "0.5rem 1rem",
-              cursor: connectionStatus === "connecting" ? "wait" : "pointer",
-            }}
           >
             Start webcam
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={stop}
-            style={{ padding: "0.5rem 1rem", cursor: "pointer" }}
-          >
+          <button type="button" className="btn btn-secondary" onClick={stop}>
             Stop
           </button>
         )}
         <button
           type="button"
+          className="btn btn-secondary"
           onClick={() => void fetchHistory()}
           disabled={!sessionId || historyLoading}
           aria-busy={historyLoading}
-          style={{
-            padding: "0.5rem 1rem",
-            cursor:
-              sessionId && !historyLoading ? "pointer" : "not-allowed",
-          }}
         >
           {historyLoading ? "Loading history…" : "Fetch ROI history (sample)"}
         </button>
       </div>
 
       {sessionId && (
-        <p style={{ fontSize: "0.9rem", opacity: 0.9 }}>
+        <p className="session-line">
           Session: <code>{sessionId}</code>
           {historyTotal != null && <> · DB records (total): {historyTotal}</>}
         </p>
       )}
 
+      <section id="live" aria-label="Live video stream">
+        <div className="video-card">
+          <div className="video-stage">
+            {showLiveChrome && (
+              <div className="badge-live-corner" aria-hidden>
+                <span className="badge-live-corner__dot" />
+                LIVE
+              </div>
+            )}
+            <div className="fps-readout">
+              FPS{" "}
+              <span>
+                {effectiveFps == null
+                  ? "—"
+                  : effectiveFps >= 100
+                    ? effectiveFps.toFixed(0)
+                    : effectiveFps.toFixed(1)}
+              </span>
+            </div>
+            <video ref={videoRef} playsInline muted className="canvas-hidden" />
+            <canvas ref={dispRef} />
+            <canvas ref={capRef} className="canvas-hidden" />
+          </div>
+        </div>
+      </section>
+
       {sessionId && roi && (
         <section
+          className="roi-live-card"
+          role="region"
           aria-label="Current ROI"
-          style={{
-            marginBottom: "1rem",
-            padding: "0.75rem 1rem",
-            borderRadius: 8,
-            border: "1px solid #334155",
-            background: "#0f172a",
-            fontSize: "0.9rem",
-          }}
         >
-          <h2 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem", fontWeight: 600 }}>
-            Current ROI (live)
-          </h2>
-          <p style={{ margin: "0.25rem 0" }}>
-            Frame <strong>{roi.frame_index}</strong>
+          <div className="roi-live-card__head">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+              <path
+                fill="currentColor"
+                d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
+              />
+            </svg>
+            <h2 className="roi-live-card__title">Current ROI (live)</h2>
+          </div>
+          <div className="stat-grid">
+            <div>
+              <span className="stat-cell__label">Frame index</span>
+              <div className="stat-cell__value">{roi.frame_index}</div>
+            </div>
+            <div>
+              <span className="stat-cell__label">Confidence</span>
+              <div className="stat-cell__row">
+                <span className="stat-cell__value">{fmtConfidence(roi.confidence)}</span>
+                {tier && (
+                  <span className={`confidence-pill confidence-pill--${tier}`}>
+                    {confidenceTierLabel(tier)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="roi-meta-row">
+            Box (px): x=<strong>{fmtPx(roi.x)}</strong> y=
+            <strong>{fmtPx(roi.y)}</strong> w=<strong>{fmtPx(roi.w)}</strong> h=
+            <strong>{fmtPx(roi.h)}</strong>
             {" · "}
-            Face{" "}
-            <strong>{roi.face_detected ? "yes" : "no"}</strong>
-            {" · "}
-            Box (px) x={fmtPx(roi.x)} y={fmtPx(roi.y)} w={fmtPx(roi.w)} h={fmtPx(roi.h)}
-            {" · "}
-            Confidence <strong>{fmtConfidence(roi.confidence)}</strong>
-          </p>
+            Face <strong>{roi.face_detected ? "yes" : "no"}</strong>
+          </div>
         </section>
       )}
 
-      {historyRecords !== null && (
-        <section
-          aria-label="ROI history"
-          style={{ marginBottom: "1rem", overflowX: "auto" }}
-        >
-          <h2 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem", fontWeight: 600 }}>
-            ROI history (last fetch: {historyRecords.length} row
-            {historyRecords.length === 1 ? "" : "s"})
-          </h2>
-          {historyTotal != null &&
-            historyTotal > 0 &&
-            historyRecords.length === 0 && (
-              <p style={{ fontSize: "0.85rem", opacity: 0.85 }}>
-                No rows in this page (try a different offset on the API).
-              </p>
-            )}
-          {historyRecords.length > 0 && (
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "0.8rem",
-                border: "1px solid #334155",
-              }}
-            >
-              <caption
-                style={{
-                  captionSide: "top",
-                  textAlign: "left",
-                  fontSize: "0.8rem",
-                  paddingBottom: "0.35rem",
-                  opacity: 0.9,
-                }}
-              >
-                Persisted ROI rows returned by{" "}
-                <code>GET /api/roi</code> (last fetch).
+      <section
+        id="history"
+        className="history-section"
+        role="region"
+        aria-label="ROI history"
+      >
+        <h2 className="history-section__title">ROI history</h2>
+        <p className="history-section__desc">
+          Persisted ROI rows from <code>GET /api/roi</code> for the current
+          session (sample: last 5).
+        </p>
+
+        {historyRecords === null && (
+          <p className="history-empty">
+            Use &quot;Fetch ROI history (sample)&quot; after a session is active to
+            load rows.
+          </p>
+        )}
+
+        {historyRecords !== null && historyTotal != null && historyTotal > 0 && historyRecords.length === 0 && (
+          <p className="history-empty">
+            No rows in this page (try a different offset on the API).
+          </p>
+        )}
+
+        {historyRecords !== null && historyRecords.length > 0 && (
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <caption>
+                Persisted ROI rows returned by <code>GET /api/roi</code> (last
+                fetch).
               </caption>
               <thead>
-                <tr style={{ background: "#1e293b", textAlign: "left" }}>
-                  <th style={{ padding: "0.35rem 0.5rem" }}>Frame</th>
-                  <th style={{ padding: "0.35rem 0.5rem" }}>Face</th>
-                  <th style={{ padding: "0.35rem 0.5rem" }}>x</th>
-                  <th style={{ padding: "0.35rem 0.5rem" }}>y</th>
-                  <th style={{ padding: "0.35rem 0.5rem" }}>w</th>
-                  <th style={{ padding: "0.35rem 0.5rem" }}>h</th>
-                  <th style={{ padding: "0.35rem 0.5rem" }}>Conf.</th>
-                  <th style={{ padding: "0.35rem 0.5rem" }}>detected_at</th>
+                <tr>
+                  <th scope="col">Frame</th>
+                  <th scope="col">Face</th>
+                  <th scope="col">x</th>
+                  <th scope="col">y</th>
+                  <th scope="col">w</th>
+                  <th scope="col">h</th>
+                  <th scope="col">Conf.</th>
+                  <th scope="col">detected_at</th>
                 </tr>
               </thead>
               <tbody>
                 {historyRecords.map((rec) => (
-                  <tr
-                    key={rec.id}
-                    style={{ borderTop: "1px solid #334155" }}
-                  >
-                    <td style={{ padding: "0.35rem 0.5rem" }}>{rec.frame_index}</td>
-                    <td style={{ padding: "0.35rem 0.5rem" }}>
-                      {rec.face_detected ? "yes" : "no"}
-                    </td>
-                    <td style={{ padding: "0.35rem 0.5rem" }}>{fmtPx(rec.x)}</td>
-                    <td style={{ padding: "0.35rem 0.5rem" }}>{fmtPx(rec.y)}</td>
-                    <td style={{ padding: "0.35rem 0.5rem" }}>{fmtPx(rec.w)}</td>
-                    <td style={{ padding: "0.35rem 0.5rem" }}>{fmtPx(rec.h)}</td>
-                    <td style={{ padding: "0.35rem 0.5rem" }}>
-                      {fmtConfidence(rec.confidence)}
-                    </td>
-                    <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap" }}>
+                  <tr key={rec.id}>
+                    <td>{rec.frame_index}</td>
+                    <td>{rec.face_detected ? "yes" : "no"}</td>
+                    <td>{fmtPx(rec.x)}</td>
+                    <td>{fmtPx(rec.y)}</td>
+                    <td>{fmtPx(rec.w)}</td>
+                    <td>{fmtPx(rec.h)}</td>
+                    <td>{fmtConfidence(rec.confidence)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
                       {new Date(rec.detected_at).toLocaleString()}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
-          {historyRecords.length === 0 && historyTotal === 0 && (
-            <p style={{ fontSize: "0.85rem", opacity: 0.85 }}>
-              No persisted ROI rows for this session yet.
-            </p>
-          )}
-        </section>
-      )}
+          </div>
+        )}
+
+        {historyRecords !== null && historyRecords.length === 0 && historyTotal === 0 && (
+          <p className="history-empty">
+            No persisted ROI rows for this session yet.
+          </p>
+        )}
+
+        <div className="info-callout">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+            <path
+              fill="currentColor"
+              d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"
+            />
+          </svg>
+          <p style={{ margin: 0 }}>
+            Coordinates (x, y, w, h) are in pixels relative to the original frame
+            resolution.
+          </p>
+        </div>
+      </section>
 
       {error && (
-        <div
-          role="alert"
-          style={{
-            marginBottom: "1rem",
-            padding: "0.75rem 1rem",
-            borderRadius: 8,
-            border: "1px solid #b91c1c",
-            background: "#450a0a",
-            color: "#fecaca",
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: "0.75rem",
-          }}
-        >
-          <p style={{ margin: 0, flex: "1 1 12rem" }}>{error}</p>
+        <div className="alert-error" role="alert">
+          <p>{error}</p>
           <button
             type="button"
+            className="btn btn-ghost-danger"
             onClick={() => setError(null)}
-            style={{
-              padding: "0.35rem 0.75rem",
-              cursor: "pointer",
-              borderRadius: 6,
-              border: "1px solid #f87171",
-              background: "transparent",
-              color: "#fecaca",
-            }}
           >
             Dismiss
           </button>
         </div>
       )}
-      {info && <p style={{ opacity: 0.75 }}>{info}</p>}
+      {info && <p className="disconnect-info">{info}</p>}
 
-      <div
-        style={{
-          position: "relative",
-          display: "inline-block",
-          border: "1px solid #334155",
-          borderRadius: 8,
-          overflow: "hidden",
-          background: "#020617",
-        }}
-      >
-        <video ref={videoRef} playsInline muted style={{ display: "none" }} />
-        <canvas
-          ref={dispRef}
-          style={{ display: "block", maxWidth: "100%", height: "auto" }}
-        />
-        <canvas ref={capRef} style={{ display: "none" }} />
-      </div>
-
-      <footer style={{ marginTop: "1.5rem", fontSize: "0.85rem", opacity: 0.7 }}>
-        <p style={{ margin: "0.25rem 0" }}>
+      <footer className="app-footer">
+        <p>
           Endpoints: <code>WS /ws/ingest</code>, <code>WS /ws/stream</code>,{" "}
           <code>GET /api/roi</code>
         </p>

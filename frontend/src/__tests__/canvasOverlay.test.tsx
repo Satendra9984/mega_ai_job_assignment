@@ -129,7 +129,7 @@ describe("Canvas ROI overlay", () => {
     });
 
     const live = await screen.findByRole("region", { name: "Current ROI" });
-    expect(live).toHaveTextContent(/Frame\s*3/);
+    expect(live).toHaveTextContent(/Frame index\s*3/);
     expect(live).toHaveTextContent(/x=\s*100/);
     expect(live).toHaveTextContent(/95\.0%/);
   });
@@ -161,7 +161,7 @@ describe("Canvas ROI overlay", () => {
     });
 
     const live = await screen.findByRole("region", { name: "Current ROI" });
-    expect(live).toHaveTextContent(/Frame\s*0/);
+    expect(live).toHaveTextContent(/Frame index\s*0/);
     expect(live).toHaveTextContent(/Face\s*no/);
     // No percentage when confidence is null (em dash only, not a % badge)
     expect(screen.queryByText(/%/)).toBeNull();
@@ -196,7 +196,7 @@ describe("Canvas ROI overlay", () => {
     }
 
     expect(await screen.findByRole("region", { name: "Current ROI" })).toHaveTextContent(
-      /Frame\s*2/,
+      /Frame index\s*2/,
     );
   });
 });
