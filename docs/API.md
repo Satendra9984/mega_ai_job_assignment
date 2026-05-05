@@ -97,6 +97,7 @@ Error codes:
 | `FRAME_TOO_LARGE` | Binary message exceeds `MAX_FRAME_BYTES` |
 | `INVALID_FRAME` | Could not decode as JPEG |
 | `DETECTION_ERROR` | Internal detector failure (frame skipped) |
+| `DB_ERROR` | Detection completed but frame metadata persistence failed (stream continues) |
 
 ### Disconnect
 
@@ -121,7 +122,7 @@ Optional query parameter:
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `session_id` | UUID string | If provided, only frames from that session are forwarded (future enhancement; currently all frames are broadcast) |
+| `session_id` | UUID string | If provided, only frames from that session are forwarded; if omitted, all published frames are forwarded |
 
 ### Server → Client
 
