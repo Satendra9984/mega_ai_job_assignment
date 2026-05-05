@@ -65,6 +65,7 @@ cd megaai
 cp .env.example .env
 
 docker compose up --build
+# or: make up
 ```
 
 **Windows (PowerShell):**
@@ -102,6 +103,7 @@ docker compose down -v       # stop and remove Postgres volume (wipes DB data)
 3. **Current ROI (live)** shows frame index, confidence, bbox, face yes/no.
 4. **Fetch ROI history (sample)** shows persisted rows or an empty-message path.
 5. **Stop** returns status to idle.
+6. Optional one-command check: `make verify` (prints `backend OK` and `frontend OK`).
 
 Optional: `GET http://localhost:8000/api/roi?session_id=<uuid>` (session UUID appears in the UI after streaming).
 
