@@ -62,11 +62,25 @@ Repeat until disconnect or error on socket:
 **Source:** [`app/routers/roi.py`](../app/routers/roi.py) — function `list_roi`.
 
 1. FastAPI injects `AsyncSession` via `Depends(get_db)` from [`database.py`](../app/database.py).
-2. Parse `session_id` (UUID), `limit` (1–1000), `offset` (≥ 0) from query string.
+2. Parse `session_id` (UUID), `limit` (1–1000), `offset` (>= 0), plus cursor params:
+   - `use_cursor` (bool, default `false`)
+   - `cursor` (opaque token, optional)
+   - `snapshot` (opaque token, optional)
 3. `session.get(VideoSession, session_id)` — if missing → `HTTPException(404, "Session not found")`.
-4. `COUNT(*)` on `roi_records` where `session_id` matches → `total`.
-5. `SELECT` from `roi_records` ordered by `frame_index ASC`, apply `offset`/`limit`.
-6. Map rows to Pydantic `ROIRecordRead`, return `ROIListResponse`.
+4. Build `base_filters` with `ROIRecord.session_id == session_id`.
+5. Determine mode:
+   - **Cursor mode** when `use_cursor=true` or `cursor`/`snapshot` is provided.
+   - **Offset mode** otherwise (backward compatibility).
+6. In **cursor mode**:
+   - If no `snapshot` provided, compute `max(id)` for the session and return it as an encoded snapshot token.
+   - Constrain reads to `id <= snapshot_max_id` (frozen view under live inserts).
+   - If `cursor` provided, decode and constrain to `id < cursor_id`.
+   - Query in deterministic order `detected_at DESC, id DESC`, fetch `limit + 1`, set `has_more`, and encode `next_cursor` from the page tail.
+7. In **offset mode**:
+   - Query with `offset` + `limit` using the same deterministic order `detected_at DESC, id DESC`.
+   - Compute `has_more` from `offset + len(rows) < total`.
+8. Run `COUNT(*)` against the active filter set to populate `total`.
+9. Map rows to Pydantic `ROIRecordRead` and return `ROIListResponse` with `has_more`, `next_cursor`, and `snapshot` (cursor mode only).
 
 **No WebSocket, no frame bus** — this path only reads PostgreSQL (or test SQLite when overridden).
 
