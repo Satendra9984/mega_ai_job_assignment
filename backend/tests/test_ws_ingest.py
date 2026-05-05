@@ -50,6 +50,23 @@ def test_ingest_valid_frame_returns_roi_json(ws_client) -> None:
     assert roi["confidence"] is None
 
 
+def test_ingest_no_face_frame_persisted_to_db(ws_client) -> None:
+    """A no-face frame should still persist as a row with face_detected=False."""
+    jpeg = _white_jpeg()
+    with ws_client.websocket_connect("/ws/ingest") as ws:
+        handshake = ws.receive_json()
+        sid = handshake["session_id"]
+        ws.send_bytes(jpeg)
+        ws.receive_json()
+
+    r = ws_client.get(f"/api/roi?session_id={sid}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert len(body["records"]) == 1
+    assert body["records"][0]["face_detected"] is False
+
+
 def test_ingest_frame_index_increments(ws_client) -> None:
     """frame_index must increment for each successfully processed frame."""
     jpeg = _white_jpeg()
@@ -121,3 +138,31 @@ def test_ingest_session_id_is_unique_per_connection(ws_client) -> None:
             session_ids.append(msg["session_id"])
 
     assert len(set(session_ids)) == 3, "All session IDs should be unique"
+
+
+def test_ingest_db_error_sends_error_and_continues(ws_client, monkeypatch) -> None:
+    """A DB save failure should emit DB_ERROR and keep the websocket session alive."""
+    state = {"failed_once": False}
+
+    async def _save_roi_record_fail_once(*args, **kwargs):
+        if not state["failed_once"]:
+            state["failed_once"] = True
+            raise RuntimeError("simulated DB outage")
+        from app.services.session_service import save_roi_record
+
+        return await save_roi_record(*args, **kwargs)
+
+    monkeypatch.setattr("app.routers.ingest.save_roi_record", _save_roi_record_fail_once)
+
+    jpeg = _white_jpeg()
+    with ws_client.websocket_connect("/ws/ingest") as ws:
+        ws.receive_json()  # handshake
+        ws.send_bytes(jpeg)
+        err = ws.receive_json()
+        assert err["type"] == "error"
+        assert err["code"] == "DB_ERROR"
+
+        ws.send_bytes(jpeg)
+        roi = ws.receive_json()
+        assert roi["type"] == "roi"
+        assert roi["frame_index"] == 0

@@ -110,3 +110,17 @@ def test_stream_disconnect_does_not_affect_ingest(ws_client) -> None:
         roi = ingest_ws.receive_json()
 
     assert roi["type"] == "roi"
+
+
+def test_stream_session_filter_only_receives_matching_session(ws_client) -> None:
+    """session_id query parameter should isolate stream frames by ingest session."""
+    jpeg = make_solid_jpeg(color=(10, 20, 30))
+
+    with ws_client.websocket_connect("/ws/ingest") as ingest_ws:
+        handshake = ingest_ws.receive_json()
+        sid = handshake["session_id"]
+
+        with ws_client.websocket_connect(f"/ws/stream?session_id={sid}") as stream_ws:
+            ingest_ws.send_bytes(jpeg)
+            ingest_ws.receive_json()  # roi reply
+            assert stream_ws.receive_bytes() == jpeg

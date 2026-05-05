@@ -29,6 +29,8 @@ import uuid
 import pytest
 from PIL import Image
 
+pytestmark = pytest.mark.e2e
+
 BACKEND_HOST = os.getenv("E2E_BACKEND_HOST", "localhost")
 BACKEND_PORT = int(os.getenv("E2E_BACKEND_PORT", "8000"))
 BACKEND_HTTP = f"http://{BACKEND_HOST}:{BACKEND_PORT}"

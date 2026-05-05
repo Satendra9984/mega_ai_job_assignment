@@ -25,6 +25,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
 from app.main import app
+from app.services.connection_limiter import ConnectionLimiter
 from app.services.detector import FaceDetector
 from app.services.frame_bus import FrameBus
 
@@ -149,8 +150,16 @@ def ws_client(monkeypatch) -> Generator:
         the_app.state.session_factory = sf
         the_app.state.frame_bus = FrameBus()
         the_app.state.detector = FaceDetector()
+        the_app.state.connection_limiter = ConnectionLimiter(max_per_ip=10)
+
+        async def _get_db_override() -> AsyncGenerator[AsyncSession, None]:
+            async with sf() as session:
+                yield session
+
+        the_app.dependency_overrides[get_db] = _get_db_override
         yield
         the_app.state.detector.close()
+        the_app.dependency_overrides.clear()
         await engine.dispose()
 
     monkeypatch.setattr(app.router, "lifespan_context", _test_lifespan)
