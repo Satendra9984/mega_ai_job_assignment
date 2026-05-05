@@ -281,6 +281,7 @@ Latest local run: backend **31** tests, frontend **19** tests (Vitest).
 | **`password authentication failed for user megaai`** | Wrong password or role misconfigured | `ALTER ROLE megaai WITH PASSWORD 'megaai';` or match `.env`; confirm with `psql`. |
 | **`relation "sessions" does not exist`** | Schema not migrated | **`alembic upgrade head`** from `backend/` (Docker does this automatically in the container). |
 | **`permission denied for schema public`** (Alembic) | PostgreSQL **15+** default privileges | `GRANT CREATE, USAGE ON SCHEMA public TO megaai;` (see [Native PostgreSQL checklist](#native-postgresql-checklist)). |
+| ROI history pages show duplicates/skips while stream is active | Offset pagination drifts under concurrent inserts | Use cursor pagination (`use_cursor=true`) and pass returned `next_cursor` + `snapshot` across pages. |
 
 ---
 

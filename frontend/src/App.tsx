@@ -34,6 +34,9 @@ type ROIListResponse = {
   total: number;
   limit: number;
   offset: number;
+  has_more?: boolean;
+  next_cursor?: string | null;
+  snapshot?: string | null;
   records: ROIRecordRead[];
 };
 
@@ -207,6 +210,7 @@ export function App() {
   const wsOpenedAtRef = useRef<number | null>(null);
   const intentionalStopRef = useRef(false);
   const roiMsgTimesRef = useRef<number[]>([]);
+  const historyFrozenRef = useRef(false);
 
   const [running, setRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -218,9 +222,19 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyMode, setHistoryMode] = useState<"cursor" | "offset" | null>(null);
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
+  const [historySnapshot, setHistorySnapshot] = useState<string | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyFrozen, setHistoryFrozen] = useState(false);
+  const [historyHasNewDataHint, setHistoryHasNewDataHint] = useState(false);
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("idle");
   const [effectiveFps, setEffectiveFps] = useState<number | null>(null);
+
+  useEffect(() => {
+    historyFrozenRef.current = historyFrozen;
+  }, [historyFrozen]);
 
   const recordRoiMessageForFps = useCallback(() => {
     const now = performance.now();
@@ -302,6 +316,12 @@ export function App() {
     setConnectionStatus("idle");
     setHistoryRecords(null);
     setHistoryTotal(null);
+    setHistoryMode(null);
+    setHistoryNextCursor(null);
+    setHistorySnapshot(null);
+    setHistoryHasMore(false);
+    setHistoryFrozen(false);
+    setHistoryHasNewDataHint(false);
     setRoi(null);
     resetFps();
     if (sendTimerRef.current) {
@@ -320,6 +340,12 @@ export function App() {
     setInfo(null);
     setHistoryRecords(null);
     setHistoryTotal(null);
+    setHistoryMode(null);
+    setHistoryNextCursor(null);
+    setHistorySnapshot(null);
+    setHistoryHasMore(false);
+    setHistoryFrozen(false);
+    setHistoryHasNewDataHint(false);
     setRoi(null);
     resetFps();
     setConnectionStatus("connecting");
@@ -347,6 +373,9 @@ export function App() {
           else if (msg.type === "roi") {
             setRoi(msg);
             recordRoiMessageForFps();
+            if (historyFrozenRef.current) {
+              setHistoryHasNewDataHint(true);
+            }
           } else if (msg.type === "error") setError(`${msg.code}: ${msg.detail}`);
         } catch {
           /* ignore malformed */
@@ -411,27 +440,104 @@ export function App() {
     }
   };
 
-  const fetchHistory = async () => {
+  const isValidHistoryResponse = (data: ROIListResponse): boolean => {
+    if (typeof data.total !== "number" || !Array.isArray(data.records)) {
+      setError("ROI API returned an unexpected response shape.");
+      return false;
+    }
+    return true;
+  };
+
+  const fetchHistory = async ({
+    append = false,
+    forceOffset = false,
+  }: { append?: boolean; forceOffset?: boolean } = {}) => {
     if (!sessionId || historyLoading) return;
     setHistoryLoading(true);
     try {
-      const r = await fetch(
-        `${apiRoot()}/api/roi?session_id=${encodeURIComponent(sessionId)}&limit=5`,
-      );
+      const limit = 5;
+      const shouldUseCursor = !forceOffset && historyMode !== "offset";
+      if (shouldUseCursor) {
+        const cursorParams = new URLSearchParams({
+          session_id: sessionId,
+          limit: String(limit),
+          use_cursor: "true",
+        });
+        if (append && historyNextCursor) cursorParams.set("cursor", historyNextCursor);
+        if (historySnapshot) cursorParams.set("snapshot", historySnapshot);
+        const r = await fetch(`${apiRoot()}/api/roi?${cursorParams.toString()}`);
+        if (r.ok) {
+          const data = (await r.json()) as ROIListResponse;
+          if (!isValidHistoryResponse(data)) return;
+          const mergedRecords = append
+            ? [...(historyRecords ?? []), ...data.records]
+            : data.records;
+          setHistoryMode("cursor");
+          setHistoryTotal(data.total);
+          setHistoryRecords(mergedRecords);
+          setHistoryHasMore(Boolean(data.has_more));
+          setHistoryNextCursor(data.next_cursor ?? null);
+          setHistorySnapshot(data.snapshot ?? null);
+          setHistoryFrozen(Boolean(data.snapshot));
+          if (!append) setHistoryHasNewDataHint(false);
+          return;
+        }
+        if (!append) {
+          // Fallback for compatibility if backend lacks cursor fields.
+          const offsetParams = new URLSearchParams({
+            session_id: sessionId,
+            limit: String(limit),
+            offset: "0",
+          });
+          const fallbackResp = await fetch(`${apiRoot()}/api/roi?${offsetParams.toString()}`);
+          if (!fallbackResp.ok) {
+            setError(await roiApiErrorMessage(fallbackResp));
+            return;
+          }
+          const fallbackData = (await fallbackResp.json()) as ROIListResponse;
+          if (!isValidHistoryResponse(fallbackData)) return;
+          setHistoryMode("offset");
+          setHistoryTotal(fallbackData.total);
+          setHistoryRecords(fallbackData.records);
+          setHistoryHasMore(
+            (fallbackData.offset ?? 0) + fallbackData.records.length < fallbackData.total,
+          );
+          setHistoryNextCursor(null);
+          setHistorySnapshot(null);
+          setHistoryFrozen(false);
+          setHistoryHasNewDataHint(false);
+          return;
+        }
+        setError(await roiApiErrorMessage(r));
+        return;
+      }
+
+      const offset = append ? (historyRecords?.length ?? 0) : 0;
+      const offsetParams = new URLSearchParams({
+        session_id: sessionId,
+        limit: String(limit),
+        offset: String(offset),
+      });
+      const r = await fetch(`${apiRoot()}/api/roi?${offsetParams.toString()}`);
       if (!r.ok) {
         setError(await roiApiErrorMessage(r));
         return;
       }
       const data = (await r.json()) as ROIListResponse;
-      if (
-        typeof data.total !== "number" ||
-        !Array.isArray(data.records)
-      ) {
-        setError("ROI API returned an unexpected response shape.");
-        return;
-      }
+      if (!isValidHistoryResponse(data)) return;
+      const mergedRecords = append
+        ? [...(historyRecords ?? []), ...data.records]
+        : data.records;
+      setHistoryMode("offset");
       setHistoryTotal(data.total);
-      setHistoryRecords(data.records);
+      setHistoryRecords(mergedRecords);
+      setHistoryHasMore(
+        (data.offset ?? 0) + data.records.length < data.total,
+      );
+      setHistoryNextCursor(null);
+      setHistorySnapshot(null);
+      setHistoryFrozen(false);
+      if (!append) setHistoryHasNewDataHint(false);
     } catch (e) {
       setError(
         e instanceof Error
@@ -588,6 +694,19 @@ export function App() {
           Persisted ROI rows from <code>GET /api/roi</code> for the current
           session (sample: last 5).
         </p>
+        {historyFrozen && historyHasNewDataHint && (
+          <div className="history-refresh-row">
+            <span className="history-badge">New rows available</span>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => void fetchHistory()}
+              disabled={historyLoading}
+            >
+              Refresh to latest
+            </button>
+          </div>
+        )}
 
         {historyRecords === null && (
           <p className="history-empty">
@@ -603,41 +722,55 @@ export function App() {
         )}
 
         {historyRecords !== null && historyRecords.length > 0 && (
-          <div className="data-table-wrap">
-            <table className="data-table">
-              <caption>
-                Persisted ROI rows returned by <code>GET /api/roi</code> (last
-                fetch).
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Frame</th>
-                  <th scope="col">Face</th>
-                  <th scope="col">x</th>
-                  <th scope="col">y</th>
-                  <th scope="col">w</th>
-                  <th scope="col">h</th>
-                  <th scope="col">Conf.</th>
-                  <th scope="col">detected_at</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historyRecords.map((rec) => (
-                  <tr key={rec.id}>
-                    <td>{rec.frame_index}</td>
-                    <td>{rec.face_detected ? "yes" : "no"}</td>
-                    <td>{fmtPx(rec.x)}</td>
-                    <td>{fmtPx(rec.y)}</td>
-                    <td>{fmtPx(rec.w)}</td>
-                    <td>{fmtPx(rec.h)}</td>
-                    <td>{fmtConfidence(rec.confidence)}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      {new Date(rec.detected_at).toLocaleString()}
-                    </td>
+          <div>
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <caption>
+                  Persisted ROI rows returned by <code>GET /api/roi</code> (last
+                  fetch).
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Frame</th>
+                    <th scope="col">Face</th>
+                    <th scope="col">x</th>
+                    <th scope="col">y</th>
+                    <th scope="col">w</th>
+                    <th scope="col">h</th>
+                    <th scope="col">Conf.</th>
+                    <th scope="col">detected_at</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {historyRecords.map((rec) => (
+                    <tr key={rec.id}>
+                      <td>{rec.frame_index}</td>
+                      <td>{rec.face_detected ? "yes" : "no"}</td>
+                      <td>{fmtPx(rec.x)}</td>
+                      <td>{fmtPx(rec.y)}</td>
+                      <td>{fmtPx(rec.w)}</td>
+                      <td>{fmtPx(rec.h)}</td>
+                      <td>{fmtConfidence(rec.confidence)}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {new Date(rec.detected_at).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {historyHasMore && (
+              <div className="history-load-row">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void fetchHistory({ append: true })}
+                  disabled={historyLoading || (historyMode === "cursor" && !historyNextCursor)}
+                >
+                  {historyLoading ? "Loading…" : "Load older"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

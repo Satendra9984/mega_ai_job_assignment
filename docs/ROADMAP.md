@@ -92,11 +92,14 @@ Operational checklist and commands: [SPRINT_1/SPRINT_1_UP_AND_RUNNING.md](SPRINT
 - Security: no secrets in repo; env vars only; frame-size guard; CORS restricted to `CORS_ORIGINS`
 - `README.md` finalized with correct commands, expected output, and screenshots
 - `docs/AI_USAGE.md` filled in with every AI interaction logged
+- ROI history hardening: cursor pagination with frozen snapshots for live-write stability
 
 ### Checkpoints
 
 - [ ] `docker compose up` → `localhost:3000` → webcam with face box in under 5 min (manual verification — follow [README.md](../README.md) **Verify in under 5 minutes**)
 - [ ] `/api/roi` returns records after a live session (manual verification — same README section + optional curl)
+- [ ] Cursor pagination (`use_cursor=true`) returns stable pages under active ingest (no duplicate/skip rows across pages)
+- [ ] Snapshot token boundary freezes paginated history view while stream continues writing
 - [x] All automated tests pass (`pytest -v` in backend container)
 - [x] No `.env` file committed; `.env.example` is complete and accurate
 - [x] README "stranger test" — procedure, rebuild note, and screenshots committed ([README.md](../README.md); perform a real fresh-clone run before submit if required by reviewers)

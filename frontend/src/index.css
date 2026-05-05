@@ -429,6 +429,24 @@ code {
   max-width: 48rem;
 }
 
+.history-refresh-row,
+.history-load-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.75rem 0;
+}
+
+.history-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(79, 209, 237, 0.35);
+  background: rgba(79, 209, 237, 0.1);
+  color: var(--accent-cyan);
+}
+
 .data-table-wrap {
   overflow-x: auto;
   border-radius: var(--radius-card);

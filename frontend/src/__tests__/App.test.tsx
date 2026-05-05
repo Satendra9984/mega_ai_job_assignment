@@ -243,6 +243,9 @@ describe("App — ROI history fetch", () => {
       total: 1,
       limit: 5,
       offset: 0,
+      has_more: false,
+      next_cursor: null,
+      snapshot: "snap-1",
       records: [
         {
           id: 1,
@@ -312,6 +315,186 @@ describe("App — ROI history fetch", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/Session not found/i);
+  });
+
+  it("loads older rows with cursor metadata", async () => {
+    const sessionUuid = "550e8400-e29b-41d4-a716-446655440000";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          session_id: sessionUuid,
+          total: 4,
+          limit: 5,
+          offset: 0,
+          has_more: true,
+          next_cursor: "cursor-1",
+          snapshot: "snap-1",
+          records: [
+            {
+              id: 4,
+              frame_index: 4,
+              detected_at: "2026-05-04T12:00:04.000Z",
+              face_detected: true,
+              x: 10,
+              y: 10,
+              w: 40,
+              h: 40,
+              confidence: 0.99,
+            },
+            {
+              id: 3,
+              frame_index: 3,
+              detected_at: "2026-05-04T12:00:03.000Z",
+              face_detected: true,
+              x: 11,
+              y: 11,
+              w: 41,
+              h: 41,
+              confidence: 0.98,
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          session_id: sessionUuid,
+          total: 4,
+          limit: 5,
+          offset: 0,
+          has_more: false,
+          next_cursor: null,
+          snapshot: "snap-1",
+          records: [
+            {
+              id: 2,
+              frame_index: 2,
+              detected_at: "2026-05-04T12:00:02.000Z",
+              face_detected: false,
+              x: null,
+              y: null,
+              w: null,
+              h: null,
+              confidence: null,
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await startAndOpenWS();
+    act(() => {
+      wsInstance.onmessage?.({
+        data: JSON.stringify({ type: "session", session_id: sessionUuid }),
+      });
+    });
+
+    await act(async () => {
+      screen.getByRole("button", { name: /fetch roi history/i }).click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: /load older/i }).click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  it("shows new rows hint and refresh action while frozen", async () => {
+    const sessionUuid = "550e8400-e29b-41d4-a716-446655440000";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          session_id: sessionUuid,
+          total: 1,
+          limit: 5,
+          offset: 0,
+          has_more: false,
+          next_cursor: null,
+          snapshot: "snap-1",
+          records: [
+            {
+              id: 1,
+              frame_index: 1,
+              detected_at: "2026-05-04T12:00:01.000Z",
+              face_detected: true,
+              x: 5,
+              y: 6,
+              w: 7,
+              h: 8,
+              confidence: 0.9,
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          session_id: sessionUuid,
+          total: 2,
+          limit: 5,
+          offset: 0,
+          has_more: false,
+          next_cursor: null,
+          snapshot: "snap-2",
+          records: [
+            {
+              id: 2,
+              frame_index: 2,
+              detected_at: "2026-05-04T12:00:02.000Z",
+              face_detected: true,
+              x: 15,
+              y: 16,
+              w: 17,
+              h: 18,
+              confidence: 0.92,
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await startAndOpenWS();
+    act(() => {
+      wsInstance.onmessage?.({
+        data: JSON.stringify({ type: "session", session_id: sessionUuid }),
+      });
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: /fetch roi history/i }).click();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      wsInstance.onmessage?.({
+        data: JSON.stringify({
+          type: "roi",
+          session_id: sessionUuid,
+          frame_index: 22,
+          face_detected: true,
+          x: 1,
+          y: 2,
+          w: 3,
+          h: 4,
+          confidence: 0.91,
+        }),
+      });
+    });
+
+    expect(await screen.findByText(/new rows available/i)).toBeInTheDocument();
+    await act(async () => {
+      screen.getByRole("button", { name: /refresh to latest/i }).click();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("dismisses the error alert when Dismiss is clicked", async () => {

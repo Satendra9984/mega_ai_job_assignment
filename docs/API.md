@@ -153,7 +153,16 @@ GET /api/roi?session_id={uuid}&limit={n}&offset={n}
 |-------|------|----------|---------|-------------|
 | `session_id` | UUID string | Yes | — | Session to query |
 | `limit` | integer | No | 100 | Max records to return (1–1000) |
-| `offset` | integer | No | 0 | Pagination offset |
+| `offset` | integer | No | 0 | Offset for compatibility mode |
+| `use_cursor` | boolean | No | `false` | Enables cursor pagination mode |
+| `cursor` | string | No | `null` | Opaque token for the next cursor page |
+| `snapshot` | string | No | `null` | Opaque frozen-snapshot boundary token |
+
+### Pagination modes
+
+- **Offset compatibility mode** (`use_cursor=false`): retains historical `limit/offset` behavior.
+- **Cursor mode** (`use_cursor=true`): uses deterministic order `detected_at DESC, id DESC` and is stable under live writes.
+- In cursor mode, the first page returns `snapshot` and `next_cursor`; pass both for subsequent pages.
 
 ### Response 200 OK
 
@@ -163,6 +172,9 @@ GET /api/roi?session_id={uuid}&limit={n}&offset={n}
   "total": 312,
   "limit": 100,
   "offset": 0,
+  "has_more": true,
+  "next_cursor": "eyJkZXRlY3RlZF9hdCI6IjIwMjYtMDUtMDRUMDQ6MzA6MDAuMjIzKzAwOjAwIiwiaWQiOjJ9",
+  "snapshot": "eyJtYXhfaWQiOjMxMn0",
   "records": [
     {
       "id": 1,
@@ -188,6 +200,12 @@ GET /api/roi?session_id={uuid}&limit={n}&offset={n}
     }
   ]
 }
+```
+
+### Cursor page follow-up example
+
+```
+GET /api/roi?session_id={uuid}&limit=100&use_cursor=true&cursor={next_cursor}&snapshot={snapshot}
 ```
 
 ### Response 422 Unprocessable Entity

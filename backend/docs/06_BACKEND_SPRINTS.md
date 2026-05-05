@@ -114,3 +114,30 @@ Each sprint below has: **Goal**, **Read list**, **Hands-on exercises**, **Defini
 ## After these sprints
 
 Pick a **single** improvement (metrics, rate limit, structured logging, auth, etc.) as a new Sprint B5 and repeat the same pattern: read list → small change → tests → doc note in this file or a new `backend/docs/deepdives/<topic>.md`.
+
+---
+
+## Sprint B5 — ROI pagination hardening (1 day)
+
+**Goal:** Make `/api/roi` stable and efficient while ingestion continuously writes new rows.
+
+**Read list:**
+
+1. [`app/routers/roi.py`](../app/routers/roi.py)
+2. [`tests/test_roi_api.py`](../tests/test_roi_api.py)
+3. [../../docs/API.md](../../docs/API.md) — ROI endpoint contract
+
+**Hands-on:**
+
+- Implement cursor-first pagination with deterministic sort (`detected_at DESC, id DESC`).
+- Keep `limit` + `offset` compatibility mode for existing clients.
+- Add frozen snapshot semantics (`snapshot` token) so multi-page reads do not drift under live inserts.
+- Add migration index aligned to query pattern (`session_id`, `detected_at`, `id`).
+- Add tests for malformed tokens and snapshot behavior during concurrent inserts.
+
+**Definition of done:**
+
+- [ ] Cursor pagination returns `next_cursor`, `snapshot`, and `has_more`.
+- [ ] No duplicate/skip rows across cursor pages while new records are inserted.
+- [ ] Existing offset calls still succeed without contract break.
+- [ ] `pytest -v` passes with new cursor/snapshot tests.

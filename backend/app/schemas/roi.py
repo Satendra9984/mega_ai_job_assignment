@@ -23,4 +23,7 @@ class ROIListResponse(BaseModel):
     total: int
     limit: int = Field(ge=1, le=1000)
     offset: int = Field(ge=0)
+    has_more: bool = False
+    next_cursor: str | None = None
+    snapshot: str | None = None
     records: list[ROIRecordRead]
